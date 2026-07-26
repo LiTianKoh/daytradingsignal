@@ -2,7 +2,7 @@
 
 import requests
 import pandas as pd
-from config import OANDA_API_KEY, OANDA_ACCOUNT_ID, OANDA_INSTRUMENT, OANDA_GRANULARITY
+from config import OANDA_API_KEY, OANDA_INSTRUMENT, OANDA_GRANULARITY
 
 def fetch_candles(instrument=OANDA_INSTRUMENT, granularity=OANDA_GRANULARITY, count=1000):
     """Fetch latest candles from OANDA v20 API."""
@@ -10,7 +10,7 @@ def fetch_candles(instrument=OANDA_INSTRUMENT, granularity=OANDA_GRANULARITY, co
     params = {
         "granularity": granularity,
         "count": count,
-        "price": "M"  # Midpoint prices
+        "price": "M"
     }
     headers = {
         "Authorization": f"Bearer {OANDA_API_KEY}",
@@ -32,5 +32,4 @@ def fetch_candles(instrument=OANDA_INSTRUMENT, granularity=OANDA_GRANULARITY, co
     return pd.DataFrame(candles)
 
 def fetch_daily_candles(instrument=OANDA_INSTRUMENT, count=400):
-    """Fetch daily candles for Daily S/R (equivalent of request.security(..., "D", ...))."""
     return fetch_candles(instrument, "D", count)
