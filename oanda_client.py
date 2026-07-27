@@ -2,10 +2,10 @@
 
 import requests
 import pandas as pd
-from config import OANDA_API_KEY, OANDA_INSTRUMENT, OANDA_GRANULARITY
+from config import OANDA_API_KEY
 
-def fetch_candles(instrument=OANDA_INSTRUMENT, granularity=OANDA_GRANULARITY, count=1000):
-    """Fetch latest candles from OANDA v20 API."""
+def fetch_candles(instrument, granularity="H1", count=1000):
+    """Fetch latest candles from OANDA v20 API for any instrument."""
     url = f"https://api-fxtrade.oanda.com/v3/instruments/{instrument}/candles"
     params = {
         "granularity": granularity,
@@ -30,6 +30,3 @@ def fetch_candles(instrument=OANDA_INSTRUMENT, granularity=OANDA_GRANULARITY, co
             "close": float(c['mid']['c'])
         })
     return pd.DataFrame(candles)
-
-def fetch_daily_candles(instrument=OANDA_INSTRUMENT, count=400):
-    return fetch_candles(instrument, "D", count)

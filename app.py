@@ -6,7 +6,7 @@ import logging
 from flask import Flask, jsonify
 from engine import TradingViewEngine
 from oanda_client import fetch_candles
-from config import GAS_WEBHOOK_URL, OANDA_INSTRUMENT
+from config import INSTRUMENTS
 import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -15,48 +15,43 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ─── GLOBALS ──────────────────────────────────────────────────────────────────
-engine = None
+engines = {}  # {instrument_name: engine_instance}
 bot_running = False
 
 # ─── SEND TO GOOGLE APPS SCRIPT ──────────────────────────────────────────────
 
-def send_signal(signal):
+def send_signal(signal, webhook_url):
     if not signal:
         return
     try:
-        resp = requests.post(GAS_WEBHOOK_URL, json={"signal": signal}, timeout=10)
+        resp = requests.post(webhook_url, json={"signal": signal}, timeout=10)
         logger.info(f"✅ Signal sent: {resp.status_code} - {signal['dir']} {signal['pair']} @ {signal['entry']}")
     except Exception as e:
         logger.error(f"❌ Failed to send signal: {e}")
 
 # ─── BOT MAIN LOOP ────────────────────────────────────────────────────────────
 
-def run_bot():
-    global engine, bot_running
-    logger.info("🚀 Starting TradingView Python Engine (OANDA)")
+def run_bot_for_instrument(instrument_config):
+    """Run a single instrument's trading engine."""
+    instrument = instrument_config["name"]
+    granularity = instrument_config.get("granularity", "H1")
+    webhook = instrument_config["webhook"]
+    
+    logger.info(f"🚀 Starting engine for {instrument}")
 
-    # Initial fetch
     try:
-        df = fetch_candles(count=500)
+        df = fetch_candles(instrument, granularity, count=500)
         engine = TradingViewEngine()
         engine.ingest_batch(df)
-        logger.info(f"✅ Processed {len(df)} historical bars.")
-        bot_running = True
+        logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
+        engines[instrument] = engine
     except Exception as e:
-        logger.error(f"❌ Initialization failed: {e}")
-        bot_running = False
+        logger.error(f"❌ {instrument}: Initialization failed: {e}")
         return
 
-    # ── LIVE LOOP ──────────────────────────────────────────────────────────
     while True:
         try:
-            if not bot_running:
-                logger.warning("⚠️ Bot paused, waiting for restart...")
-                time.sleep(60)
-                continue
-
-            # Fetch latest 2 bars (catch any new data)
-            new_df = fetch_candles(count=2)
+            new_df = fetch_candles(instrument, granularity, count=2)
             if len(new_df) > 0 and engine:
                 last_time = engine.times[-1] if engine.times else None
                 for _, row in new_df.iterrows():
@@ -65,59 +60,74 @@ def run_bot():
                             row['open'], row['high'], row['low'], row['close'], row['time']
                         )
                         if signal:
-                            logger.info(f"📈 SIGNAL: {signal['signal']} {signal['dir']} @ {signal['entry']}")
-                            send_signal(signal)
+                            logger.info(f"📈 {instrument}: SIGNAL - {signal['signal']} {signal['dir']} @ {signal['entry']}")
+                            send_signal(signal, webhook)
                         last_time = row['time']
 
-            # Sleep 60 seconds before next check
-            time.sleep(60)
+            time.sleep(60)  # Check every minute
 
         except Exception as e:
-            logger.error(f"❌ Loop error: {e}")
+            logger.error(f"❌ {instrument}: Loop error: {e}")
             time.sleep(60)
+
+# ─── START ALL INSTRUMENTS ────────────────────────────────────────────────────
+
+def start_all_engines():
+    """Start a separate thread for each instrument."""
+    global bot_running
+    bot_running = True
+    
+    for instrument_config in INSTRUMENTS:
+        thread = threading.Thread(
+            target=run_bot_for_instrument,
+            args=(instrument_config,),
+            daemon=True
+        )
+        thread.start()
+        logger.info(f"✅ Started thread for {instrument_config['name']}")
+        time.sleep(2)  # Stagger startup to avoid rate limits
 
 # ─── FLASK ROUTES ──────────────────────────────────────────────────────────────
 
 @app.route('/')
 def health():
-    """Health check endpoint — keeps Render alive."""
+    """Health check endpoint."""
     status = "running" if bot_running else "initializing"
+    instrument_status = {}
+    for name, engine in engines.items():
+        instrument_status[name] = {
+            "bars": len(engine.closes) if engine else 0,
+            "lr_valid": engine.lr_valid if engine else False,
+        }
     return jsonify({
         "status": status,
-        "bars": len(engine.closes) if engine else 0,
-        "last_bar": str(engine.times[-1]) if engine and engine.times else None
+        "instruments": instrument_status
     })
 
 @app.route('/status')
 def status():
     """Detailed status endpoint."""
-    if not engine:
-        return jsonify({"status": "not_initialized"})
+    instrument_status = {}
+    for name, engine in engines.items():
+        if engine:
+            instrument_status[name] = {
+                "bars": len(engine.closes),
+                "last_bar": str(engine.times[-1]) if engine.times else None,
+                "lr_valid": engine.lr_valid,
+                "ema200": engine.ema200,
+                "atr": engine.atr_val,
+                "in_consolidation": any(engine.cons_active) if engine.cons_active else False
+            }
     return jsonify({
-        "status": "running",
-        "bars": len(engine.closes),
-        "last_bar": str(engine.times[-1]) if engine.times else None,
-        "lr_valid": engine.lr_valid,
-        "ema200": engine.ema200,
-        "atr": engine.atr_val,
-        "in_consolidation": any(engine.cons_active) if engine.cons_active else False
+        "status": "running" if bot_running else "stopped",
+        "instruments": instrument_status
     })
-
-@app.route('/start')
-def start_bot():
-    """Manually restart the bot (useful for debugging)."""
-    global bot_running, engine
-    bot_running = False
-    time.sleep(2)
-    threading.Thread(target=run_bot, daemon=True).start()
-    return jsonify({"status": "restarted"})
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    # Start bot in background thread
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-
+    # Start all instrument engines in background threads
+    start_all_engines()
+    
     # Keep Flask running
     app.run(host='0.0.0.0', port=8080)

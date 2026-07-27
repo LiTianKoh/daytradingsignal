@@ -20,9 +20,39 @@ PARAMS = {
     "riskMultiplier": 1.5,
 }
 
-OANDA_API_KEY = "YOUR_OANDA_API_KEY"
-OANDA_ACCOUNT_ID = "YOUR_OANDA_ACCOUNT_ID"
-OANDA_INSTRUMENT = "GBP_USD"
-OANDA_GRANULARITY = "H1"
+OANDA_API_KEY = "105fcd4c3d67b53142b9b82bf178a9d6-9b77d2297259fa10f61a7ab0f36e4c78"
+OANDA_ACCOUNT_ID = "101-003-39782402-001"
 
-GAS_WEBHOOK_URL = "https://script.google.com/macros/s/YOUR_WEB_APP_URL/exec"
+# ─── MULTI-INSTRUMENT CONFIG ──────────────────────────────────────────────────
+INSTRUMENTS = [
+    {
+        "name": "GBP_USD",
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+    {
+        "name": "GBP_JPY",
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+    {
+        "name": "XAU_USD",
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+    {
+        "name": "NZD_USD",
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+    {
+        "name": "EUR_USD",
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+    {
+        "name": "USD_JPY",  # ✅ ADDED
+        "granularity": "H1",
+        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+    },
+]
