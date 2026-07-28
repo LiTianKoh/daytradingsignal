@@ -2,7 +2,7 @@
 
 import requests
 import pandas as pd
-from config import OANDA_API_KEY
+from config import OANDA_API_KEY, OANDA_API_URL
 
 def fetch_candles(instrument, granularity="H1", count=1000):
     """Fetch latest candles from OANDA v20 API for any instrument."""
