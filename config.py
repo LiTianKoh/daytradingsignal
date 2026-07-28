@@ -20,7 +20,7 @@ PARAMS = {
     "riskMultiplier": 1.5,
 }
 
-OANDA_API_KEY = "105fcd4c3d67b53142b9b82bf178a9d6-9b77d2297259fa10f61a7ab0f36e4c78"
+OANDA_API_KEY = "9ac593ffc79e23b49eff6c79d2f31bce-de45ed8f81fe7905edebd216cebf8d46"
 OANDA_ACCOUNT_ID = "101-003-39782402-001"
 
 # ─── MULTI-INSTRUMENT CONFIG ──────────────────────────────────────────────────
