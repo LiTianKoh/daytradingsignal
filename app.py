@@ -123,6 +123,62 @@ def status():
         "instruments": instrument_status
     })
 
+@app.route('/test_signal/<instrument>')
+def test_signal(instrument):
+    """Send a test signal to verify Telegram integration."""
+    test_signal_data = {
+        "signal": "Type 3 Trend (LR Channel Band)",
+        "dir": "Long",
+        "pair": instrument,
+        "tf": "H1",
+        "entry": "1.28450",
+        "sl": "1.28200",
+        "tp": "1.28825",
+        "lr": "✅ Bullish",
+        "ema": "✅",
+        "cons": "➖",
+        "div": "➖",
+        "conv": "⏳",
+        "choch": "➖",
+        "time": str(int(time.time() * 1000))
+    }
+    
+    # Find the webhook URL for this instrument
+    webhook = None
+    for inst in INSTRUMENTS:
+        if inst["name"] == instrument:
+            webhook = inst["webhook"]
+            break
+    
+    if not webhook:
+        return jsonify({"error": f"Instrument {instrument} not found"}), 404
+    
+    try:
+        resp = requests.post(webhook, json={"signal": test_signal_data}, timeout=10)
+        return jsonify({
+            "status": "test signal sent",
+            "instrument": instrument,
+            "response_code": resp.status_code,
+            "response_text": resp.text
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/test_oanda/<instrument>')
+def test_oanda(instrument):
+    """Test OANDA connection."""
+    try:
+        df = fetch_candles(instrument, "H1", count=10)
+        return jsonify({
+            "status": "connected",
+            "instrument": instrument,
+            "bars_fetched": len(df),
+            "latest_close": float(df['close'].iloc[-1]) if len(df) > 0 else None,
+            "latest_time": str(df['time'].iloc[-1]) if len(df) > 0 else None
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
