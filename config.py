@@ -28,31 +28,31 @@ INSTRUMENTS = [
     {
         "name": "GBP_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
     {
         "name": "GBP_JPY",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
     {
         "name": "XAU_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
     {
         "name": "NZD_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
     {
         "name": "EUR_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
     {
         "name": "USD_JPY",  # ✅ ADDED
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbxnMfVIU64ebywLjEvW9KktLnR-JEkSvbK-8H9QMje6Oewr99Htwmyt5s2d2xl8w3hu/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
     },
 ]
