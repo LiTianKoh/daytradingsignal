@@ -28,31 +28,31 @@ INSTRUMENTS = [
     {
         "name": "GBP_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
     {
         "name": "GBP_JPY",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
     {
         "name": "XAU_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
     {
         "name": "NZD_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
     {
         "name": "EUR_USD",
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
     {
         "name": "USD_JPY",  # ✅ ADDED
         "granularity": "H1",
-        "webhook": "https://script.google.com/macros/s/AKfycbwoH0OeK-ZjKkpoxt-Xb6nvHhYcqexMAbDptJSx5bVZshPfJe5jBrYCF7flTkuYU40H/exec"
+        "webhook": "https://script.google.com/macros/s/AKfycbxDqNgO8oALODDAoQ4MwznjxI_Z4kYW8e2Cqq36oL2sOtSZxE73DwKQ7W6zDWI9B9Bg/exec"
     },
 ]
