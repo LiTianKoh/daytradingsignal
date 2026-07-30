@@ -33,6 +33,8 @@ def send_signal(signal, webhook_url):
 
 def run_bot_for_instrument(instrument_config):
     """Run a single instrument's trading engine."""
+    global bot_running  # ← ADD THIS LINE
+    
     instrument = instrument_config["name"]
     granularity = instrument_config.get("granularity", "H1")
     webhook = instrument_config["webhook"]
@@ -45,8 +47,12 @@ def run_bot_for_instrument(instrument_config):
         engine.ingest_batch(df)
         logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
         engines[instrument] = engine
+        bot_running = True  # ← Now this will update the global variable
     except Exception as e:
         logger.error(f"❌ {instrument}: Initialization failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        bot_running = False
         return
 
     while True:
@@ -74,8 +80,7 @@ def run_bot_for_instrument(instrument_config):
 
 def start_all_engines():
     """Start a separate thread for each instrument."""
-    global bot_running
-    bot_running = True
+    global bot_running  # ← ADD THIS LINE
     
     for instrument_config in INSTRUMENTS:
         thread = threading.Thread(
@@ -126,6 +131,9 @@ def status():
 @app.route('/test_signal/<instrument>')
 def test_signal(instrument):
     """Send a test signal to verify Telegram integration."""
+    import logging
+    logging.info(f"🔍 Test signal requested for {instrument}")
+    
     test_signal_data = {
         "signal": "Type 3 Trend (LR Channel Band)",
         "dir": "Long",
@@ -143,7 +151,6 @@ def test_signal(instrument):
         "time": str(int(time.time() * 1000))
     }
     
-    # Find the webhook URL for this instrument
     webhook = None
     for inst in INSTRUMENTS:
         if inst["name"] == instrument:
@@ -154,7 +161,10 @@ def test_signal(instrument):
         return jsonify({"error": f"Instrument {instrument} not found"}), 404
     
     try:
+        logging.info(f"📤 Sending test signal to webhook: {webhook}")
         resp = requests.post(webhook, json={"signal": test_signal_data}, timeout=10)
+        logging.info(f"✅ Webhook response: {resp.status_code} - {resp.text[:100]}")
+        
         return jsonify({
             "status": "test signal sent",
             "instrument": instrument,
@@ -162,8 +172,9 @@ def test_signal(instrument):
             "response_text": resp.text
         })
     except Exception as e:
+        logging.error(f"❌ Test signal failed: {e}")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route('/test_oanda/<instrument>')
 def test_oanda(instrument):
     """Test OANDA connection."""
@@ -178,7 +189,37 @@ def test_oanda(instrument):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+@app.route('/ping_telegram')
+def ping_telegram():
+    """Send a simple ping message to Telegram."""
+    try:
+        token = "8148974966:AAFqW1LmHySlvH_5v79itFA2NrFowEqnQpY"
+        chat_id = "5572387258"
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": "🟢 Bot is alive and connected!",
+            "parse_mode": "HTML"
+        }
+        resp = requests.post(url, json=payload, timeout=10)
+        return jsonify({
+            "status": "message sent",
+            "telegram_response": resp.status_code
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/start_engine')
+def start_engine():
+    """Manually start the trading engine."""
+    global bot_running
+    if bot_running:
+        return jsonify({"status": "already running"})
+    thread = threading.Thread(target=run_bot, daemon=True)
+    thread.start()
+    return jsonify({"status": "engine starting"})
+
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
