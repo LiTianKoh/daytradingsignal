@@ -1,4 +1,4 @@
-# app.py - Full Updated Version
+# app.py - Full Version with Risk/Exit Flow
 
 import threading
 import time
@@ -20,18 +20,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ─── GLOBALS ──────────────────────────────────────────────────────────────────
-engines = {}                # {instrument_name: engine_instance}
-pending_trades = {}         # {signal_id: trade_data}
-user_states = {}            # {chat_id: {"state": "awaiting_risk"|"awaiting_exit"|None, "signal_id": ...}}
+engines = {}
+pending_trades = {}
+user_states = {}  # {chat_id: {"state": "awaiting_risk"|"awaiting_exit"|None, "signal_id": ...}}
 bot_running = False
 BOT_TOKEN = "8148974966:AAFqW1LmHySlvH_5v79itFA2NrFowEqnQpY"
 CHAT_ID = "5572387258"
-SHEET_ID = "1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0"  # Use your actual sheet ID
+SHEET_ID = "1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0"
 
 # ─── GOOGLE SHEETS AUTH ─────────────────────────────────────────────────────
 
 def get_gspread_client():
-    """Get authorized gspread client using environment credentials."""
     creds_base64 = os.environ.get('GOOGLE_CREDENTIALS')
     if not creds_base64:
         logger.error("❌ GOOGLE_CREDENTIALS not set")
@@ -50,7 +49,6 @@ def get_gspread_client():
 # ─── TELEGRAM HELPERS ──────────────────────────────────────────────────────
 
 def send_message(chat_id, text, reply_markup=None):
-    """Send a plain text message to Telegram."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
@@ -63,7 +61,6 @@ def send_message(chat_id, text, reply_markup=None):
         return None
 
 def edit_message(chat_id, message_id, text, reply_markup=None):
-    """Edit an existing Telegram message."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
@@ -76,7 +73,6 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
         return None
 
 def answer_callback(callback_id, text):
-    """Answer a callback query."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
     payload = {"callback_query_id": callback_id, "text": text, "show_alert": False}
     try:
@@ -87,7 +83,6 @@ def answer_callback(callback_id, text):
 # ─── SIGNAL MESSAGE FORMATTER ─────────────────────────────────────────────
 
 def format_signal_message(data, status=None, risk=None, exit_price=None, r_multiple=None):
-    """Format the signal message with optional status."""
     dirEmoji = "📈" if data.get("dir") == "Long" else "📉"
     base = (
         f"🚨 <b>SIGNAL ALERT</b>\n\n"
@@ -114,11 +109,10 @@ def format_signal_message(data, status=None, risk=None, exit_price=None, r_multi
 # ─── SEND SIGNAL ───────────────────────────────────────────────────────────
 
 def send_telegram_signal(signal_data):
-    """Send a new signal with Yes/No buttons."""
     signal_id = f"{signal_data['pair']}_{int(time.time()*1000)}"
     pending_trades[signal_id] = {
         "signal": signal_data,
-        "status": "pending",  # pending, awaiting_risk, holding, awaiting_exit, exited
+        "status": "pending",
         "risk": None,
         "exit_price": None,
         "r_multiple": None,
@@ -139,7 +133,6 @@ def send_telegram_signal(signal_data):
     }
     resp = send_message(CHAT_ID, message, keyboard)
     if resp and resp.get('ok'):
-        # Store message_id for later editing
         pending_trades[signal_id]['message_id'] = resp['result']['message_id']
         pending_trades[signal_id]['chat_id'] = CHAT_ID
     else:
@@ -148,7 +141,6 @@ def send_telegram_signal(signal_data):
 # ─── HANDLE CALLBACKS ─────────────────────────────────────────────────────
 
 def handle_taken(callback_id, signal_id):
-    """User tapped Yes - ask for risk amount."""
     trade = pending_trades.get(signal_id)
     if not trade:
         answer_callback(callback_id, "⚠️ Signal expired.")
@@ -157,11 +149,9 @@ def handle_taken(callback_id, signal_id):
         answer_callback(callback_id, "⚠️ Already processed.")
         return
 
-    # Update status to awaiting_risk
     trade['status'] = 'awaiting_risk'
     user_states[CHAT_ID] = {"state": "awaiting_risk", "signal_id": signal_id}
 
-    # Edit original message to remove buttons and ask for risk
     edit_message(
         chat_id=CHAT_ID,
         message_id=trade['message_id'],
@@ -171,10 +161,9 @@ def handle_taken(callback_id, signal_id):
     answer_callback(callback_id, "Please enter your risk amount.")
 
 def handle_skipped(callback_id, signal_id):
-    """User tapped No - skip trade."""
     trade = pending_trades.get(signal_id)
     if trade:
-        trade['status'] = 'exited'  # mark as skipped
+        trade['status'] = 'exited'
         edit_message(
             chat_id=CHAT_ID,
             message_id=trade['message_id'],
@@ -183,7 +172,6 @@ def handle_skipped(callback_id, signal_id):
     answer_callback(callback_id, "📝 Skipped.")
 
 def handle_exit(callback_id, signal_id):
-    """User tapped Exit - ask for exit price."""
     trade = pending_trades.get(signal_id)
     if not trade or trade['status'] != 'holding':
         answer_callback(callback_id, "⚠️ No active trade.")
@@ -198,7 +186,6 @@ def handle_exit(callback_id, signal_id):
     answer_callback(callback_id, "Please enter your exit price.")
 
 def handle_cancel(callback_id, signal_id):
-    """User cancelled the trade."""
     trade = pending_trades.get(signal_id)
     if trade:
         trade['status'] = 'exited'
@@ -210,13 +197,12 @@ def handle_cancel(callback_id, signal_id):
         user_states.pop(CHAT_ID, None)
     answer_callback(callback_id, "Trade cancelled.")
 
-# ─── HANDLE TEXT MESSAGES (Risk & Exit price) ─────────────────────────────
+# ─── HANDLE TEXT MESSAGES ────────────────────────────────────────────────
 
 def handle_text_message(message):
-    """Process text messages for risk and exit price."""
     chat_id = str(message['chat']['id'])
     if chat_id != CHAT_ID:
-        return  # only respond to our own chat
+        return
 
     text = message.get('text', '').strip()
     user_state = user_states.get(chat_id)
@@ -239,12 +225,10 @@ def handle_text_message(message):
             send_message(chat_id, "⚠️ Please enter a valid positive number (e.g., 100).")
             return
 
-        # Save risk and update status
         trade['risk'] = risk
         trade['status'] = 'holding'
         user_states.pop(chat_id, None)
 
-        # Edit message to show Holding with Exit button
         keyboard = {
             "inline_keyboard": [
                 [
@@ -268,7 +252,6 @@ def handle_text_message(message):
             send_message(chat_id, "⚠️ Please enter a valid price (e.g., 1.28500).")
             return
 
-        # Compute P&L and R multiple
         entry = float(trade['entry'])
         sl = float(trade['sl'])
         risk = trade['risk']
@@ -285,10 +268,8 @@ def handle_text_message(message):
         trade['status'] = 'exited'
         user_states.pop(chat_id, None)
 
-        # Log to Google Sheets
         log_trade_to_sheet(trade)
 
-        # Edit message with outcome
         edit_message(
             chat_id=CHAT_ID,
             message_id=trade['message_id'],
@@ -299,7 +280,6 @@ def handle_text_message(message):
 # ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
 
 def log_trade_to_sheet(trade):
-    """Append the final trade data to the Trade Log sheet."""
     client = get_gspread_client()
     if not client:
         logger.error("Cannot log: no Google Sheets client")
@@ -312,31 +292,31 @@ def log_trade_to_sheet(trade):
 
     signal = trade['signal']
     row = [
-        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A: Timestamp
-        time.strftime('%Y-%m-%d'),  # B: Date
-        time.strftime('%H:%M'),  # C: Time
-        signal.get('pair', ''),  # D: Pair
-        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E: Direction
-        signal.get('signal', ''),  # F: Signal Type
-        "",  # G: DXY Bias
-        "",  # H: DXY Aligned
-        signal.get('lr', ''),  # I: LR Channel
-        signal.get('ema', ''),  # J: EMA
-        "",  # K: OTE
-        "",  # L: S/R
-        signal.get('cons', ''),  # M: Cons
-        signal.get('entry', ''),  # N: Entry
-        signal.get('sl', ''),  # O: SL
-        "",  # P: TP (we don't have a fixed TP)
-        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌",  # Q: Outcome
-        trade.get('exit_price', ''),  # R: Exit
-        "",  # S: Notes
-        "",  # T: RR (will be computed)
-        "",  # U: Win (will be computed)
-        trade.get('risk', ''),  # V: Risk Amount
-        trade.get('r_multiple', ''),  # W: Actual R Multiple
-        "",  # X: Holding Time (can compute later)
-        ""   # Y: ATR at Entry (not stored yet)
+        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        time.strftime('%Y-%m-%d'),
+        time.strftime('%H:%M'),
+        signal.get('pair', ''),
+        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",
+        signal.get('signal', ''),
+        "",
+        "",
+        signal.get('lr', ''),
+        signal.get('ema', ''),
+        "",
+        "",
+        signal.get('cons', ''),
+        signal.get('entry', ''),
+        signal.get('sl', ''),
+        "",
+        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌",
+        trade.get('exit_price', ''),
+        "",
+        "",
+        "",
+        trade.get('risk', ''),
+        trade.get('r_multiple', ''),
+        "",
+        ""
     ]
     try:
         sheet.append_row(row)
@@ -344,59 +324,42 @@ def log_trade_to_sheet(trade):
     except Exception as e:
         logger.error(f"Failed to append row: {e}")
 
-# ─── SCORING FUNCTION ──────────────────────────────────────────────────────
+# ─── SCORING ──────────────────────────────────────────────────────────────
 
 def compute_score(engine, direction):
-    """
-    Compute a score (0-10) for a given direction based on engine state.
-    Score components: LR slope, R², price position relative to bands, RSI, etc.
-    """
     if not engine or not engine.lr_valid:
         return 0.0
-
     score = 0.0
-    # LR slope alignment
     if direction == 'Long' and engine.lr_slope > 0:
         score += 3.0
     elif direction == 'Short' and engine.lr_slope < 0:
         score += 3.0
-
-    # R-squared (from saved R)
     if engine.saved_r and abs(engine.saved_r) >= 0.7:
-        score += min(2.0, abs(engine.saved_r) * 2)  # up to 2 points
-
-    # Price near bands
+        score += min(2.0, abs(engine.saved_r) * 2)
     if engine.lr_upper and engine.lr_lower:
         if direction == 'Long' and engine.closes[-1] <= engine.lr_lower + engine.atr_val * 0.5:
             score += 2.0
         elif direction == 'Short' and engine.closes[-1] >= engine.lr_upper - engine.atr_val * 0.5:
             score += 2.0
-
-    # RSI overbought/oversold
     if engine.rsi_val:
         if direction == 'Long' and engine.rsi_val < 40:
             score += 2.0
         elif direction == 'Short' and engine.rsi_val > 60:
             score += 2.0
-
-    # EMA alignment
     if engine.ema200:
         if direction == 'Long' and engine.closes[-1] > engine.ema200:
             score += 1.0
         elif direction == 'Short' and engine.closes[-1] < engine.ema200:
             score += 1.0
-
     return min(10.0, score)
 
 def update_scores_sheet():
-    """Periodically compute scores for all instruments and update Google Sheets."""
     client = get_gspread_client()
     if not client:
         return
     try:
         sheet = client.open_by_key(SHEET_ID).worksheet("Scores")
     except:
-        # Create Scores sheet if missing
         sheet = client.open_by_key(SHEET_ID).add_worksheet("Scores", rows=100, cols=10)
         sheet.append_row(["Timestamp", "Pair", "Long Score", "Short Score", "LR Slope", "R", "ATR", "Price"])
 
@@ -407,7 +370,6 @@ def update_scores_sheet():
             continue
         long_score = compute_score(engine, 'Long')
         short_score = compute_score(engine, 'Short')
-        # Also capture some metrics
         lr_slope = engine.lr_slope if engine.lr_slope is not None else 0
         r_val = engine.saved_r if engine.saved_r is not None else 0
         atr = engine.atr_val if engine.atr_val is not None else 0
@@ -415,34 +377,167 @@ def update_scores_sheet():
         rows.append([timestamp, name, round(long_score,2), round(short_score,2), round(lr_slope,5), round(r_val,3), round(atr,5), round(price,5)])
 
     if rows:
-        # Clear existing data and write new (we keep only latest scores)
         sheet.clear()
         sheet.append_row(["Timestamp", "Pair", "Long Score", "Short Score", "LR Slope", "R", "ATR", "Price"])
         for row in rows:
             sheet.append_row(row)
         logger.info(f"✅ Updated Scores sheet with {len(rows)} instruments")
 
-# ─── SCORING LOOP ──────────────────────────────────────────────────────────
-
 def scoring_loop():
-    """Run scoring update every hour."""
     while True:
         try:
             update_scores_sheet()
         except Exception as e:
             logger.error(f"Scoring loop error: {e}")
-        time.sleep(3600)  # 1 hour
+        time.sleep(3600)
+
+# ─── BOT ENGINE ──────────────────────────────────────────────────────────
+
+def run_bot_for_instrument(instrument_config):
+    global bot_running
+    instrument = instrument_config["name"]
+    granularity = instrument_config.get("granularity", "H1")
+    logger.info(f"🚀 Starting engine for {instrument}")
+
+    try:
+        df = fetch_candles(instrument, granularity, count=500)
+        engine = TradingViewEngine()
+        engine.ingest_batch(df)
+        logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
+        engines[instrument] = engine
+        bot_running = True
+    except Exception as e:
+        logger.error(f"❌ {instrument}: Initialization failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        bot_running = False
+        return
+
+    while True:
+        try:
+            new_df = fetch_candles(instrument, granularity, count=2)
+            if len(new_df) > 0 and engine:
+                last_time = engine.times[-1] if engine.times else None
+                for _, row in new_df.iterrows():
+                    if last_time is None or row['time'] > last_time:
+                        signal = engine.step(
+                            row['open'], row['high'], row['low'], row['close'], row['time']
+                        )
+                        if signal:
+                            logger.info(f"📈 {instrument}: SIGNAL - {signal['signal']} {signal['dir']} @ {signal['entry']}")
+                            send_telegram_signal(signal)
+                        last_time = row['time']
+            time.sleep(60)
+        except Exception as e:
+            logger.error(f"❌ {instrument}: Loop error: {e}")
+            time.sleep(60)
+
+def start_all_engines():
+    global bot_running
+    for instrument_config in INSTRUMENTS:
+        thread = threading.Thread(
+            target=run_bot_for_instrument,
+            args=(instrument_config,),
+            daemon=True
+        )
+        thread.start()
+        logger.info(f"✅ Started thread for {instrument_config['name']}")
+        time.sleep(2)
 
 # ─── FLASK ROUTES ──────────────────────────────────────────────────────────
 
+@app.route('/')
+def health():
+    status = "running" if bot_running else "initializing"
+    instrument_status = {}
+    for name, engine in engines.items():
+        instrument_status[name] = {
+            "bars": len(engine.closes) if engine else 0,
+            "lr_valid": engine.lr_valid if engine else False,
+        }
+    return jsonify({"status": status, "instruments": instrument_status})
+
+@app.route('/status')
+def status():
+    instrument_status = {}
+    for name, engine in engines.items():
+        if engine:
+            instrument_status[name] = {
+                "bars": len(engine.closes),
+                "last_bar": str(engine.times[-1]) if engine.times else None,
+                "lr_valid": engine.lr_valid,
+                "ema200": engine.ema200,
+                "atr": engine.atr_val,
+                "in_consolidation": any(engine.cons_active) if engine.cons_active else False
+            }
+    is_running = len(engines) > 0
+    return jsonify({"status": "running" if is_running else "stopped", "instruments": instrument_status})
+
+@app.route('/test_signal/<instrument>')
+def test_signal(instrument):
+    logger.info(f"🔍 Test signal requested for {instrument}")
+    test_signal_data = {
+        "signal": "Type 3 Trend (LR Channel Band)",
+        "dir": "Long",
+        "pair": instrument,
+        "tf": "H1",
+        "entry": "1.28450",
+        "sl": "1.28200",
+        "tp": "1.28825",
+        "lr": "✅ Bullish",
+        "ema": "✅",
+        "cons": "➖",
+        "div": "➖",
+        "conv": "⏳",
+        "choch": "➖",
+        "time": str(int(time.time() * 1000))
+    }
+    try:
+        send_telegram_signal(test_signal_data)
+        return jsonify({"status": "test signal sent", "instrument": instrument})
+    except Exception as e:
+        logger.error(f"❌ Test signal failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/test_oanda/<instrument>')
+def test_oanda(instrument):
+    try:
+        df = fetch_candles(instrument, "H1", count=10)
+        return jsonify({
+            "status": "connected",
+            "instrument": instrument,
+            "bars_fetched": len(df),
+            "latest_close": float(df['close'].iloc[-1]) if len(df) > 0 else None,
+            "latest_time": str(df['time'].iloc[-1]) if len(df) > 0 else None
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ping_telegram')
+def ping_telegram():
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": "🟢 Bot is alive and connected!", "parse_mode": "HTML"}
+        resp = requests.post(url, json=payload, timeout=10)
+        return jsonify({"status": "message sent", "telegram_response": resp.status_code})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/start_engine')
+def start_engine():
+    global bot_running
+    if bot_running:
+        return jsonify({"status": "already running"})
+    thread = threading.Thread(target=run_bot_for_instrument, args=(INSTRUMENTS[0],), daemon=True)
+    thread.start()
+    return jsonify({"status": "engine starting"})
+
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    """Handle all incoming Telegram updates."""
     try:
         data = request.get_json()
         logger.info(f"📥 Webhook received: {data}")
 
-        # Handle callback queries (button taps)
         if 'callback_query' in data:
             callback = data['callback_query']
             callback_id = callback['id']
@@ -466,7 +561,6 @@ def telegram_webhook():
             else:
                 answer_callback(callback_id, "Unknown action.")
 
-        # Handle text messages (risk, exit price)
         elif 'message' in data and 'text' in data['message']:
             handle_text_message(data['message'])
 
@@ -475,18 +569,9 @@ def telegram_webhook():
         logger.error(f"Webhook error: {e}")
         return "OK", 200
 
-# ─── EXISTING ROUTES (health, status, test, etc.) ────────────────────────
-# ... (keep your existing routes: /, /status, /test_signal, /test_oanda, /ping_telegram, /start_engine)
-# I'll include them below for completeness, but they remain unchanged.
-
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    # Start engines (existing code)
     start_all_engines()
-
-    # Start scoring thread
     threading.Thread(target=scoring_loop, daemon=True).start()
-
-    # Keep Flask running
     app.run(host='0.0.0.0', port=8080)
