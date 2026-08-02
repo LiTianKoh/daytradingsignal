@@ -248,6 +248,9 @@ def status():
                 "atr": engine.atr_val,
                 "in_consolidation": any(engine.cons_active) if engine.cons_active else False
             }
+
+    is_running = len(engines) > 0
+
     return jsonify({
         "status": "running" if bot_running else "stopped",
         "instruments": instrument_status
@@ -355,7 +358,7 @@ def telegram_webhook():
                 return "OK", 200
 
             if response == "taken":
-                log_to_google_sheet(signal_data)
+                # log_to_google_sheet(signal_data)
                 answer_callback(callback_id, "✅ Logged!")
             else:
                 answer_callback(callback_id, "📝 Skipped.")
