@@ -268,7 +268,11 @@ def handle_text_message(message):
         trade['status'] = 'exited'
         user_states.pop(chat_id, None)
 
+        logger.info(f"📤 Attempting to log trade: {trade['pair']} {trade['dir']} R={r_multiple:.2f}")
+
         log_trade_to_sheet(trade)
+
+        logger.info(f"✅ Trade logging completed for {trade['pair']}")
 
         edit_message(
             chat_id=CHAT_ID,
