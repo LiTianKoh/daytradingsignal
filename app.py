@@ -568,6 +568,31 @@ def telegram_webhook():
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return "OK", 200
+    
+@app.route('/test_log')
+def test_log():
+    """Test Google Sheets logging directly."""
+    try:
+        import gspread
+        from oauth2client.service_account import ServiceAccountCredentials
+        import os, json, base64
+        
+        creds_base64 = os.environ.get('GOOGLE_CREDENTIALS')
+        if not creds_base64:
+            return jsonify({"error": "GOOGLE_CREDENTIALS not set"}), 500
+        
+        creds_json = base64.b64decode(creds_base64).decode('utf-8')
+        creds_dict = json.loads(creds_json)
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        sheet = client.open_by_key("1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0").worksheet("Trade Log")
+        sheet.append_row(["TEST", "from", "endpoint", "at", time.strftime('%Y-%m-%d %H:%M:%S')])
+        
+        return jsonify({"status": "test row appended"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────
 
