@@ -129,8 +129,12 @@ def send_telegram_signal(signal_data):
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "✅ Yes, taken", "callback_data": f"taken_{signal_id}"},
-                {"text": "❌ No, skipped", "callback_data": f"skipped_{signal_id}"}
+                {"text": "✅ TP", "callback_data": f"tp_{signal_id}"},
+                {"text": "❌ SL", "callback_data": f"sl_{signal_id}"}
+            ],
+            [
+                {"text": "✏️ Manual Exit", "callback_data": f"exit_{signal_id}"},
+                {"text": "❌ Cancel", "callback_data": f"cancel_{signal_id}"}
             ]
         ]
     }
@@ -199,6 +203,65 @@ def handle_cancel(callback_id, signal_id):
         )
         user_states.pop(CHAT_ID, None)
     answer_callback(callback_id, "Trade cancelled.")
+
+def handle_tp(callback_id, signal_id):
+    """Close trade at Take Profit price."""
+    trade = pending_trades.get(signal_id)
+    if not trade or trade['status'] != 'holding':
+        answer_callback(callback_id, "⚠️ No active trade.")
+        return
+    # Use TP price from signal
+    tp_price = float(trade['signal'].get('tp'))
+    if not tp_price:
+        answer_callback(callback_id, "⚠️ TP price not available.")
+        return
+    close_trade(callback_id, signal_id, tp_price, "TP")
+
+def handle_sl(callback_id, signal_id):
+    """Close trade at Stop Loss price."""
+    trade = pending_trades.get(signal_id)
+    if not trade or trade['status'] != 'holding':
+        answer_callback(callback_id, "⚠️ No active trade.")
+        return
+    sl_price = float(trade['signal'].get('sl'))
+    if not sl_price:
+        answer_callback(callback_id, "⚠️ SL price not available.")
+        return
+    close_trade(callback_id, signal_id, sl_price, "SL")
+
+def close_trade(callback_id, signal_id, exit_price, exit_type):
+    """Finalize trade with given exit price and type."""
+    trade = pending_trades.get(signal_id)
+    if not trade:
+        answer_callback(callback_id, "⚠️ Signal expired.")
+        return
+    # ... same logic as handle_exit but using exit_price directly
+    entry = float(trade['entry'])
+    sl = float(trade['sl'])
+    risk = trade['risk']
+    direction = trade['dir']
+    stop_distance = abs(entry - sl)
+    if direction == 'Long':
+        pnl = (exit_price - entry) / stop_distance * risk
+    else:
+        pnl = (entry - exit_price) / stop_distance * risk
+    r_multiple = pnl / risk
+
+    trade['exit_price'] = exit_price
+    trade['r_multiple'] = r_multiple
+    trade['status'] = 'exited'
+    trade['exit_type'] = exit_type  # "TP" or "SL" or "Manual"
+    user_states.pop(CHAT_ID, None)
+
+    log_trade_to_sheet(trade)
+
+    edit_message(
+        chat_id=CHAT_ID,
+        message_id=trade['message_id'],
+        text=format_signal_message(trade['signal'], status="exited", exit_price=exit_price, r_multiple=r_multiple)
+    )
+    send_message(CHAT_ID, f"✅ Trade closed at {exit_type}. P&L: ${pnl:.2f} (R: {r_multiple:.2f})")
+    answer_callback(callback_id, f"✅ Closed at {exit_type}!")
 
 # ─── HANDLE TEXT MESSAGES ────────────────────────────────────────────────
 
@@ -283,7 +346,6 @@ def handle_text_message(message):
 # ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
 
 def log_trade_to_sheet(trade):
-    """Append the final trade data to the Trade Log sheet, including OTE."""
     client = get_gspread_client()
     if not client:
         logger.error("Cannot log: no Google Sheets client")
@@ -296,35 +358,35 @@ def log_trade_to_sheet(trade):
 
     signal = trade['signal']
     row = [
-        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A: Timestamp
-        time.strftime('%Y-%m-%d'),                         # B: Date
-        time.strftime('%H:%M'),                            # C: Time
-        signal.get('pair', ''),                            # D: Pair
-        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E: Direction
-        signal.get('signal', ''),                          # F: Signal Type
-        "",                                                # G: DXY Bias
-        "",                                                # H: DXY Aligned
-        signal.get('lr', ''),                              # I: LR Channel
-        signal.get('ema', ''),                             # J: EMA
-        signal.get('ote', ''),                             # K: OTE Zone (now filled)
-        "",                                                # L: S/R Zone
-        signal.get('cons', ''),                            # M: Cons
+        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A
+        time.strftime('%Y-%m-%d'),                         # B
+        time.strftime('%H:%M'),                            # C
+        signal.get('pair', ''),                            # D
+        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E
+        signal.get('signal', ''),                          # F
+        signal.get('dxy_bias', ''),                        # G: DXY Bias
+        signal.get('dxy_aligned', ''),                     # H: DXY Aligned
+        signal.get('lr', ''),                              # I
+        signal.get('ema', ''),                             # J
+        signal.get('ote', ''),                             # K
+        signal.get('sr_zone', ''),                         # L: S/R Zone
+        signal.get('cons', ''),                            # M
         signal.get('entry', ''),                           # N: Entry
         signal.get('sl', ''),                              # O: SL
-        "",                                                # P: TP
-        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌", # Q: Outcome
+        signal.get('tp', ''),                              # P: TP (now filled)
+        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌", # Q
         trade.get('exit_price', ''),                       # R: Exit
         "",                                                # S: Notes
-        "",                                                # T: RR (auto-computed)
-        "",                                                # U: Win (auto-computed)
-        trade.get('risk', ''),                             # V: Risk Amount ($)
-        trade.get('r_multiple', ''),                       # W: Actual R Multiple
-        "",                                                # X: Holding Time (min)
-        ""                                                 # Y: ATR at Entry (could be added)
+        "",                                                # T: RR (auto)
+        "",                                                # U: Win (auto)
+        trade.get('risk', ''),                             # V
+        trade.get('r_multiple', ''),                       # W
+        "",                                                # X
+        ""                                                 # Y
     ]
     try:
         sheet.append_row(row)
-        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')}")
+        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')} DXY={signal.get('dxy_bias', 'N/A')} SR={signal.get('sr_zone', 'No zone')}")
     except Exception as e:
         logger.error(f"Failed to append row: {e}")
 
@@ -562,6 +624,10 @@ def telegram_webhook():
                 handle_taken(callback_id, signal_id)
             elif action == 'skipped':
                 handle_skipped(callback_id, signal_id)
+            elif action == 'tp':
+                handle_tp(callback_id, signal_id)
+            elif action == 'sl':
+                handle_sl(callback_id, signal_id)
             elif action == 'exit':
                 handle_exit(callback_id, signal_id)
             elif action == 'cancel':

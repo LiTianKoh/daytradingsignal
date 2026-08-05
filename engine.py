@@ -955,10 +955,15 @@ class TradingViewEngine:
         tp = close + risk * 1.5 if self.show_any_long else close - risk * 1.5
 
         # ─── DXY Bias (from external engine) ──────────────────────────────
-        if self.dxy_engine:
-            dxy_bias = self.dxy_engine.dxy_bias
+        dxy_bias = self.dxy_bias if self.dxy_bias else "N/A"
+        if dxy_bias == "Bullish DXY" and direction == "Long":
+            dxy_aligned = "Yes — confirmed direction"
+        elif dxy_bias == "Bearish DXY" and direction == "Short":
+            dxy_aligned = "Yes — confirmed direction"
+        elif dxy_bias in ("Bullish DXY", "Bearish DXY"):
+            dxy_aligned = "No — trading against DXY"
         else:
-            dxy_bias = "N/A"
+            dxy_aligned = "N/A"
 
         # ─── S/R Zone ──────────────────────────────────────────────────────
         sr_zone = self._get_sr_zone(entry)
