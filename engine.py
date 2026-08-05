@@ -1,5 +1,4 @@
-# engine.py - Full TradingView Engine Replication
-# Includes: LR Channel, ZigZag, Consolidation, Daily S/R, OTE, CHoCH, Divergence, Signal Gating
+# engine.py - Full TradingView Engine with DXY, Daily S/R, OTE, etc.
 
 import numpy as np
 import pandas as pd
@@ -8,24 +7,24 @@ from indicators import atr, rsi, ema, lr_channel, find_pivots
 import math
 
 class TradingViewEngine:
-    def __init__(self):
-        self.p = PARAMS
+    def __init__(self, instrument=None, dxy_engine=None):
+        self.instrument = instrument
+        self.dxy_engine = dxy_engine  # reference to DXY engine for bias
 
-        # ─── Data Buffers ────────────────────────────────────────────────────
+        self.p = PARAMS
         self.opens = []
         self.highs = []
         self.lows = []
         self.closes = []
         self.times = []
-        self.rsi_history = []  # Store RSI for divergence lookups
-        self.daily_times = []  # For Daily S/R
+        self.rsi_history = []
 
-        # ─── Base Indicators ───────────────────────────────────────────────
+        # Base indicators
         self.atr_val = None
         self.rsi_val = None
         self.ema200 = None
 
-        # ─── LR Channel ────────────────────────────────────────────────────
+        # LR Channel
         self.lr_valid = False
         self.lr_slope = None
         self.lr_upper = None
@@ -41,7 +40,7 @@ class TradingViewEngine:
         self.lr_is_bull = False
         self.lr_is_bear = False
 
-        # ─── ZigZag ────────────────────────────────────────────────────────
+        # ZigZag
         self.zz_dir = 0
         self.zz_run_high = None
         self.zz_run_high_bar = None
@@ -62,7 +61,7 @@ class TradingViewEngine:
         self.zz_conf_low_price = None
         self.zz_conf_low_bar = None
 
-        # ─── Fibonacci / OTE ──────────────────────────────────────────────
+        # Fibonacci / OTE
         self.last_fib_high_price = None
         self.last_fib_high_bar = None
         self.last_fib_low_price = None
@@ -71,9 +70,9 @@ class TradingViewEngine:
         self.ote_done = False
         self.last_drawn_high = None
         self.last_drawn_low = None
-        self.ote_zone = None  # "OTE 1", "OTE 2", etc. for signal logging
+        self.ote_zone = "N/A"
 
-        # ─── Consolidation ──────────────────────────────────────────────────
+        # Consolidation
         self.cons_ph_price = []
         self.cons_ph_bar = []
         self.cons_pl_price = []
@@ -87,7 +86,7 @@ class TradingViewEngine:
         self.active_cons_top = None
         self.active_cons_bottom = None
 
-        # ─── Market Structure (CHoCH) ──────────────────────────────────────
+        # Market Structure (CHoCH)
         self.ms_h1 = None
         self.ms_hbar1 = None
         self.ms_h2 = None
@@ -103,7 +102,7 @@ class TradingViewEngine:
         self.new_choch_bull = False
         self.new_choch_bear = False
 
-        # ─── CHoCH State Machine ──────────────────────────────────────────
+        # CHoCH State Machine
         self.choch_bull_state = 0
         self.choch_bull_level = None
         self.choch_bull_retrace_low = None
@@ -111,7 +110,7 @@ class TradingViewEngine:
         self.choch_bear_level = None
         self.choch_bear_retrace_high = None
 
-        # ─── Divergence / Convergence ──────────────────────────────────────
+        # Divergence / Convergence
         self.last_div_price = None
         self.last_div_bar = None
         self.div_follow_up = False
@@ -121,11 +120,11 @@ class TradingViewEngine:
         self.conv_follow_up = False
         self.conv_follow_up_confirmed = False
 
-        # ─── Reversal State ────────────────────────────────────────────────
+        # Reversal State
         self.waiting_for_choch_long = False
         self.waiting_for_choch_short = False
 
-        # ─── Daily Limiters ────────────────────────────────────────────────
+        # Daily Limiters
         self.rev_long_count = 0
         self.rev_short_count = 0
         self.follow_up_long_count = 0
@@ -138,16 +137,23 @@ class TradingViewEngine:
         self.cons_short_count = 0
         self.last_day_sgt = None
 
-        # ─── Daily S/R ──────────────────────────────────────────────────────
+        # ─── Daily S/R (new) ──────────────────────────────────────────────
         self.dbar_count = 0
         self.is_new_day = False
-        self.sr_pivot_vals = []
-        self.sr_pivot_locs = []
-        self.suportresistance = [0.0] * 20
+        self.daily_high = None
+        self.daily_low = None
+        self.daily_close = None
+        self.daily_highs = []
+        self.daily_lows = []
+        self.daily_closes = []
+        self.daily_times = []
+        self.sr_pivot_vals = []        # list of daily pivot prices
+        self.sr_pivot_locs = []        # list of daily bar indices (dbar_count)
+        self.suportresistance = [0.0] * 20  # flat array: [top1, bottom1, top2, bottom2, ...]
         self.sr_cwidth = None
-        self.daily_sr_channels = []  # list of (top, bottom, color, strength)
+        self.sr_channels = []          # list of (top, bottom, strength) for dashboard
 
-        # ─── Raw Signals ────────────────────────────────────────────────────
+        # Raw Signals
         self.reversal_long_raw = False
         self.reversal_short_raw = False
         self.follow_up_long_raw = False
@@ -159,7 +165,7 @@ class TradingViewEngine:
         self.cons_long_raw = False
         self.cons_short_raw = False
 
-        # ─── Final Signals ─────────────────────────────────────────────────
+        # Final Signals
         self.show_rev_long = False
         self.show_rev_short = False
         self.show_follow_up_long = False
@@ -173,19 +179,26 @@ class TradingViewEngine:
         self.show_any_long = False
         self.show_any_short = False
 
+        # ─── DXY Bias (will be set externally) ────────────────────────────
+        self.dxy_bias = "Neutral / Unclear"
+        self.dxy_slope = None
+
+        # ─── S/R Zone (computed in _build_signal) ──────────────────────────
+        self.sr_zone = "No zone"
+
+    # ─── MAIN STEP ──────────────────────────────────────────────────────────
+
     def ingest_batch(self, df):
         for _, row in df.iterrows():
             self.step(row['open'], row['high'], row['low'], row['close'], row['time'])
 
     def step(self, o, h, l, c, ts):
-        # ─── Append Data ──────────────────────────────────────────────────
         self.opens.append(o)
         self.highs.append(h)
         self.lows.append(l)
         self.closes.append(c)
         self.times.append(ts)
 
-        # Trim to 5000 bars
         if len(self.closes) > 5000:
             self.closes = self.closes[-5000:]
             self.highs = self.highs[-5000:]
@@ -197,63 +210,60 @@ class TradingViewEngine:
         if n < 200:
             return None
 
-        # Convert to pandas for indicator calc
         close_series = pd.Series(self.closes)
         high_series = pd.Series(self.highs)
         low_series = pd.Series(self.lows)
 
-        # ─── 1. Indicators ──────────────────────────────────────────────
+        # Indicators
         if n >= self.p['atrLen']:
             self.atr_val = atr(high_series, low_series, close_series, self.p['atrLen']).iloc[-1]
-
         if n >= self.p['rsiLen']:
             rsi_vals = rsi(close_series, self.p['rsiLen'])
             self.rsi_val = rsi_vals.iloc[-1]
             self.rsi_history.append(self.rsi_val)
-
         self.ema200 = ema(close_series, 200).iloc[-1]
 
-        # ─── 2. Daily S/R ──────────────────────────────────────────────────
+        # ─── 1. Daily S/R ─────────────────────────────────────────────────
         self._update_daily_sr(ts, close_series, high_series, low_series)
 
-        # ─── 3. LR Channel ─────────────────────────────────────────────────
+        # ─── 2. LR Channel ────────────────────────────────────────────────
         self._update_lr(close_series)
 
-        # ─── 4. Pivots ──────────────────────────────────────────────────────
+        # ─── 3. Pivots ─────────────────────────────────────────────────────
         self._update_pivots(high_series, low_series)
 
-        # ─── 5. ZigZag ─────────────────────────────────────────────────────
+        # ─── 4. ZigZag ─────────────────────────────────────────────────────
         self._update_zigzag(h, l)
 
-        # ─── 6. Fibonacci / OTE ────────────────────────────────────────────
+        # ─── 5. Fibonacci / OTE ───────────────────────────────────────────
         self._update_fib()
 
-        # ─── 7. Consolidation ──────────────────────────────────────────────
+        # ─── 6. Consolidation ─────────────────────────────────────────────
         self._update_consolidation()
 
-        # ─── 8. CHoCH ──────────────────────────────────────────────────────
+        # ─── 7. CHoCH ──────────────────────────────────────────────────────
         self._update_choch()
 
-        # ─── 9. Divergence / Convergence ──────────────────────────────────
+        # ─── 8. Divergence / Convergence ──────────────────────────────────
         self._update_divergence()
 
-        # ─── 10. Reversal State ─────────────────────────────────────────────
+        # ─── 9. Reversal State ─────────────────────────────────────────────
         self._update_reversal_state()
 
-        # ─── 11. Raw Signals ────────────────────────────────────────────────
+        # ─── 10. Raw Signals ───────────────────────────────────────────────
         self._compute_raw_signals()
 
-        # ─── 12. Signal Gating ──────────────────────────────────────────────
+        # ─── 11. Signal Gating ─────────────────────────────────────────────
         self._gate_signals()
 
-        # ─── 13. Final Signal ──────────────────────────────────────────────
+        # ─── 12. Final Signal ──────────────────────────────────────────────
         signal = self._build_signal()
         return signal
 
-    # ─── DAILY S/R ────────────────────────────────────────────────────────────
+    # ─── DAILY S/R (with OANDA daily data) ─────────────────────────────────
 
     def _update_daily_sr(self, ts, close_series, high_series, low_series):
-        """Replicates Pine's Daily S/R logic (LonesomeTheBlue)."""
+        """Update daily S/R using OANDA daily data (fetched on new day)."""
         n = len(self.closes)
 
         # Detect new day
@@ -263,45 +273,124 @@ class TradingViewEngine:
             self.is_new_day = current_date != prev_date
             if self.is_new_day:
                 self.dbar_count += 1
+                # Fetch daily data (only once per day)
+                self._fetch_daily_data()
         else:
             self.is_new_day = True
             self.dbar_count = 1
+            self._fetch_daily_data()
 
-        # Get daily data (using current high/low as proxy - simplified)
-        # In a full implementation, you'd fetch daily bars separately.
-        # For now, we use the daily high/low from the current bar's date.
+        # Update daily high/low
         if self.is_new_day:
-            # Reset daily high/low for the new day
             self.daily_high = high_series.iloc[-1]
             self.daily_low = low_series.iloc[-1]
             self.daily_close = close_series.iloc[-1]
         else:
-            # Update daily high/low
             self.daily_high = max(self.daily_high, high_series.iloc[-1])
             self.daily_low = min(self.daily_low, low_series.iloc[-1])
             self.daily_close = close_series.iloc[-1]
 
-        # Compute srCwidth (simplified using ATR as fallback)
-        self.sr_cwidth = self.atr_val * 5 if self.atr_val else 0.001
+        # Compute srCwidth (if we have daily data)
+        if self.sr_cwidth is None and self.atr_val is not None:
+            self.sr_cwidth = self.atr_val * 5  # fallback
 
-        # Daily pivot detection on daily bars (simplified)
-        # In a full implementation, this would be on daily timeframe data.
-        # For now, we use the swing logic on the daily bars.
-        if self.is_new_day and n > 10:
-            # Find pivots on daily series (simplified)
-            daily_highs = []
-            daily_lows = []
-            # In a real implementation, you'd store daily bars separately.
-            # Here we use a simplified approximation.
+        # Process daily pivots (if we have daily data)
+        if self.is_new_day and self.daily_highs:
+            # Compute pivots on daily series using same srPrd
+            self._compute_daily_pivots()
 
-        # Update S/R channels (simplified)
-        # In a full implementation, this would use the LonesomeTheBlue clustering.
+    def _fetch_daily_data(self):
+        """Fetch daily OHLCV from OANDA for S/R calculation."""
+        try:
+            from oanda_client import fetch_daily_candles
+            df = fetch_daily_candles(self.instrument, count=300)  # uses config
+            self.daily_highs = df['high'].tolist()
+            self.daily_lows = df['low'].tolist()
+            self.daily_closes = df['close'].tolist()
+            self.daily_times = df['time'].tolist()
+            # Store latest close for cwidth
+            if len(df) > 0:
+                self.daily_close = df['close'].iloc[-1]
+        except Exception as e:
+            # If fetch fails, fallback to empty lists
+            self.daily_highs = []
+            self.daily_lows = []
+            self.daily_closes = []
+            self.daily_times = []
 
-    def get_daily_sr_channels(self):
-        """Returns list of (top, bottom, color, strength) for current Daily S/R."""
-        return self.daily_sr_channels
+    def _compute_daily_pivots(self):
+        """Run pivot detection and channel clustering on daily data."""
+        if len(self.daily_highs) < self.p['srPrd'] * 2 + 1:
+            return
 
-    # ─── LR CHANNEL ────────────────────────────────────────────────────────────
+        # Find pivots on daily data
+        h_vals, h_idx, l_vals, l_idx = find_pivots(
+            np.array(self.daily_highs), np.array(self.daily_lows),
+            self.p['srPrd'], self.p['srPrd']
+        )
+
+        # Update srPivotVals and srPivotLocs
+        # Use dbar_count as index (approximate)
+        if h_vals:
+            for i, val in enumerate(h_vals):
+                self.sr_pivot_vals.insert(0, val)
+                self.sr_pivot_locs.insert(0, self.dbar_count - (len(self.daily_highs) - h_idx[i]))
+        if l_vals:
+            for i, val in enumerate(l_vals):
+                self.sr_pivot_vals.insert(0, val)
+                self.sr_pivot_locs.insert(0, self.dbar_count - (len(self.daily_lows) - l_idx[i]))
+
+        # Limit to srLoopback
+        while len(self.sr_pivot_vals) > 0 and self.dbar_count - self.sr_pivot_locs[-1] > self.p['srLoopback']:
+            self.sr_pivot_vals.pop()
+            self.sr_pivot_locs.pop()
+
+        # Build channels (simplified version of LonesomeTheBlue)
+        self._build_sr_channels()
+
+    def _build_sr_channels(self):
+        """Cluster pivots into support/resistance channels."""
+        if len(self.sr_pivot_vals) == 0:
+            return
+
+        # Sort pivots by price (ascending) for clustering
+        pivots = sorted(self.sr_pivot_vals)
+        clusters = []
+        cluster = [pivots[0]]
+        for p in pivots[1:]:
+            if p - cluster[-1] <= self.sr_cwidth:
+                cluster.append(p)
+            else:
+                if len(cluster) > 0:
+                    clusters.append(cluster)
+                cluster = [p]
+        if len(cluster) > 0:
+            clusters.append(cluster)
+
+        # Each cluster becomes a channel: top = max, bottom = min
+        channels = []
+        for cl in clusters:
+            if len(cl) >= 2:  # at least 2 pivots to form a level
+                top = max(cl)
+                bottom = min(cl)
+                strength = len(cl) * 20  # strength = number of pivots * 20
+                channels.append((top, bottom, strength))
+
+        # Sort by strength descending and keep top 10
+        channels.sort(key=lambda x: x[2], reverse=True)
+        channels = channels[:10]
+
+        # Store in suportresistance array (flat: [top1, bottom1, top2, bottom2, ...])
+        self.suportresistance = [0.0] * 20
+        for i, (top, bottom, strength) in enumerate(channels):
+            if i * 2 + 1 < 20:
+                self.suportresistance[i * 2] = top
+                self.suportresistance[i * 2 + 1] = bottom
+
+        # Store as list of tuples for easy access
+        self.sr_channels = [(top, bottom, strength) for top, bottom, strength in channels]
+
+    # ─── LR CHANNEL ───────────────────────────────────────────────────────────
 
     def _update_lr(self, close_series):
         n = len(close_series)
@@ -352,7 +441,7 @@ class TradingViewEngine:
                 self.saved_end = None
                 self.lr_valid = False
 
-    # ─── PIVOTS ────────────────────────────────────────────────────────────────
+    # ─── PIVOTS ───────────────────────────────────────────────────────────────
 
     def _update_pivots(self, high_series, low_series):
         n = len(high_series)
@@ -376,7 +465,7 @@ class TradingViewEngine:
             self.ms_l1 = l_vals[-1]
             self.ms_lbar1 = l_idx[-1]
 
-        # Store consolidation pivot history (for consolidation detection)
+        # Store for consolidation
         if h_vals and h_idx:
             self.cons_ph_price.append(h_vals[-1])
             self.cons_ph_bar.append(h_idx[-1])
@@ -404,13 +493,10 @@ class TradingViewEngine:
             self.zz_run_low_bar = n - 1
 
         atr_mult = self.atr_val * self.p['atrMult'] if self.atr_val else 999
+        fib_active = True  # assume 1H or higher
 
         self.new_zz_high = False
         self.new_zz_low = False
-
-        # H1 timeframe check (fibActive equivalent)
-        # Using 3600 seconds as 1H
-        fib_active = True  # Assuming 1H or higher
 
         if fib_active:
             if self.zz_dir != -1 and self.zz_run_high is not None and (self.zz_run_high - l) >= atr_mult:
@@ -449,7 +535,7 @@ class TradingViewEngine:
         is_bull_leg = self.zz_h1 > self.zz_h2 and self.zz_l1 > self.zz_l2
         is_bear_leg = self.zz_h1 < self.zz_h2 and self.zz_l1 < self.zz_l2
 
-        # Detect OTE zones based on current price
+        # Update OTE zone based on current price
         if self.fib_dir == 1 and self.last_fib_high_price is not None and self.last_fib_low_price is not None:
             fib_range = self.last_fib_high_price - self.last_fib_low_price
             z1_top = self.last_fib_high_price - 0.618 * fib_range
@@ -465,7 +551,6 @@ class TradingViewEngine:
             low_price = self.lows[-1]
             high_price = self.highs[-1]
 
-            # Check which zone price is in
             if low_price <= z1_top and high_price >= z1_bot and close_price > z1_top:
                 self.ote_zone = "OTE 1 — 61.8–78.6%"
             elif low_price <= z2_top and high_price >= z2_bot and close_price > z2_top:
@@ -524,11 +609,9 @@ class TradingViewEngine:
     def _update_consolidation(self):
         if self.atr_val is None:
             return
-
         n = len(self.closes)
         buf = self.atr_val * self.p['consBuf']
 
-        # Process consolidation detection using pivot history
         if len(self.cons_ph_price) >= 2 and len(self.cons_pl_price) >= 2:
             ph1 = self.cons_ph_price[-1]
             ph2 = self.cons_ph_price[-2]
@@ -544,7 +627,6 @@ class TradingViewEngine:
                 new_bottom = min(pl1, pl2)
                 new_left = min(phb1, phb2, plb1, plb2)
 
-                # Check for merging
                 merged = False
                 for i in range(len(self.cons_active)):
                     if self.cons_active[i]:
@@ -563,7 +645,6 @@ class TradingViewEngine:
                     self.cons_bottom.append(new_bottom)
                     self.cons_active.append(True)
 
-        # Update active boxes
         self.in_consolidation = False
         for i in range(len(self.cons_active)):
             if self.cons_active[i]:
@@ -600,9 +681,7 @@ class TradingViewEngine:
         if self.new_choch_bear:
             self.choch_bear_fired = True
 
-        # ─── CHoCH State Machine ──────────────────────────────────────────
-        # Replicates Pine's chochBullState / chochBearState
-
+        # State Machine
         if self.new_choch_bull and self.lr_valid:
             self.choch_bull_state = 1
             self.choch_bull_level = self.ms_h1
@@ -660,14 +739,12 @@ class TradingViewEngine:
             rsi_h2 = self._rsi_at_bar(self.zz_hbar2)
 
             if rsi_h1 is not None and rsi_h2 is not None:
-                # Follow-up confirmation
                 if self.div_follow_up and self.last_div_price is not None and self.zz_h1 < self.last_div_price:
                     self.div_follow_up_confirmed = True
                     self.div_follow_up = False
                     self.last_div_price = None
                     self.last_div_bar = None
 
-                # New divergence
                 if self.zz_h1 > self.zz_h2 and rsi_h1 < rsi_h2:
                     self.last_div_price = self.zz_h1
                     self.last_div_bar = self.zz_hbar1
@@ -679,14 +756,12 @@ class TradingViewEngine:
             rsi_l2 = self._rsi_at_bar(self.zz_lbar2)
 
             if rsi_l1 is not None and rsi_l2 is not None:
-                # Follow-up confirmation
                 if self.conv_follow_up and self.last_conv_price is not None and self.zz_l1 > self.last_conv_price:
                     self.conv_follow_up_confirmed = True
                     self.conv_follow_up = False
                     self.last_conv_price = None
                     self.last_conv_bar = None
 
-                # New convergence
                 if self.zz_l1 < self.zz_l2 and rsi_l1 > rsi_l2:
                     self.last_conv_price = self.zz_l1
                     self.last_conv_bar = self.zz_lbar1
@@ -718,71 +793,46 @@ class TradingViewEngine:
         if self.atr_val is None:
             return
 
-        # Near bands
         band_tol = self.atr_val * self.p['lrBandTol']
-        near_lower = (
-            self.lr_valid and
-            self.lr_lower is not None and
-            self.lows[-1] <= self.lr_lower + band_tol
-        )
-        near_upper = (
-            self.lr_valid and
-            self.lr_upper is not None and
-            self.highs[-1] >= self.lr_upper - band_tol
-        )
+        near_lower = self.lr_valid and self.lr_lower is not None and self.lows[-1] <= self.lr_lower + band_tol
+        near_upper = self.lr_valid and self.lr_upper is not None and self.highs[-1] >= self.lr_upper - band_tol
 
-        # EMA proximity
         near_ema_long = abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5 and self.closes[-1] > self.ema200
         near_ema_short = abs(self.highs[-1] - self.ema200) <= self.atr_val * 0.5 and self.closes[-1] < self.ema200
 
-        # Consolidation near-bound
         cons_tol = self.atr_val * 0.5
         cons_qualifies = (self.active_cons_top is not None and self.active_cons_bottom is not None and
                          (self.active_cons_top - self.active_cons_bottom) / self.active_cons_bottom >= 0.003)
 
-        near_cons_bottom = (
-            self.in_consolidation and cons_qualifies and
-            self.active_cons_bottom is not None and
-            self.lows[-1] <= self.active_cons_bottom + cons_tol and
-            self.closes[-1] > self.opens[-1]
-        )
-        near_cons_top = (
-            self.in_consolidation and cons_qualifies and
-            self.active_cons_top is not None and
-            self.highs[-1] >= self.active_cons_top - cons_tol and
-            self.closes[-1] < self.opens[-1]
-        )
+        near_cons_bottom = self.in_consolidation and cons_qualifies and self.active_cons_bottom is not None and self.lows[-1] <= self.active_cons_bottom + cons_tol and self.closes[-1] > self.opens[-1]
+        near_cons_top = self.in_consolidation and cons_qualifies and self.active_cons_top is not None and self.highs[-1] >= self.active_cons_top - cons_tol and self.closes[-1] < self.opens[-1]
 
-        # ─── Raw Signals ────────────────────────────────────────────────────
+        # Reversal
         self.reversal_long_raw = self.waiting_for_choch_long and self.new_choch_bull
         self.reversal_short_raw = self.waiting_for_choch_short and self.new_choch_bear
+        if self.reversal_long_raw: self.waiting_for_choch_long = False
+        if self.reversal_short_raw: self.waiting_for_choch_short = False
 
-        if self.reversal_long_raw:
-            self.waiting_for_choch_long = False
-        if self.reversal_short_raw:
-            self.waiting_for_choch_short = False
-
+        # Follow-up
         self.follow_up_long_raw = self.conv_follow_up_confirmed and self.closes[-1] > self.opens[-1]
         self.follow_up_short_raw = self.div_follow_up_confirmed and self.closes[-1] < self.opens[-1]
 
+        # Trend
         self.trend_long_raw = not self.in_consolidation and self.lr_is_bull and near_lower
         self.trend_short_raw = not self.in_consolidation and self.lr_is_bear and near_upper
 
+        # Consolidation
         self.cons_long_raw = near_cons_bottom
         self.cons_short_raw = near_cons_top
 
     # ─── SIGNAL GATING ─────────────────────────────────────────────────────────
 
     def _gate_signals(self):
-        """Replicates Pine's priority gating and daily limiters."""
-        # ─── Daily Limiter (SGT) ───────────────────────────────────────────
-        # Compute SGT day key
+        # Daily limiter (SGT)
         if len(self.times) > 0:
             current_time = pd.to_datetime(self.times[-1])
-            # SGT is UTC+8
             sgt_time = current_time + pd.Timedelta(hours=8)
             sgt_day_key = sgt_time.year * 10000 + sgt_time.month * 100 + sgt_time.day
-
             if self.last_day_sgt is None or sgt_day_key != self.last_day_sgt:
                 self.rev_long_count = 0
                 self.rev_short_count = 0
@@ -796,8 +846,7 @@ class TradingViewEngine:
                 self.cons_short_count = 0
                 self.last_day_sgt = sgt_day_key
 
-        # ─── Priority Gating ────────────────────────────────────────────────
-        # Reset final signals
+        # Reset
         self.show_rev_long = False
         self.show_rev_short = False
         self.show_follow_up_long = False
@@ -811,7 +860,7 @@ class TradingViewEngine:
         self.show_any_long = False
         self.show_any_short = False
 
-        # ─── Reversal Signals ──────────────────────────────────────────────
+        # Reversal
         if self.reversal_long_raw and self.rev_long_count < 2:
             self.show_rev_long = True
             self.rev_long_count += 1
@@ -819,7 +868,7 @@ class TradingViewEngine:
             self.show_rev_short = True
             self.rev_short_count += 1
 
-        # ─── Follow-up Signals ─────────────────────────────────────────────
+        # Follow-up
         if self.follow_up_long_raw and self.follow_up_long_count < 2:
             self.show_follow_up_long = True
             self.follow_up_long_count += 1
@@ -827,38 +876,34 @@ class TradingViewEngine:
             self.show_follow_up_short = True
             self.follow_up_short_count += 1
 
-        # ─── Trend Signals ──────────────────────────────────────────────────
+        # Trend (with EMA sub-priority)
         trend_long_slots_left = 2 - self.trend_long_count
         trend_short_slots_left = 2 - self.trend_short_count
 
         near_ema_long = abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5 and self.closes[-1] > self.ema200 if self.atr_val else False
         near_ema_short = abs(self.highs[-1] - self.ema200) <= self.atr_val * 0.5 and self.closes[-1] < self.ema200 if self.atr_val else False
 
-        # Long Trend: No EMA first, then EMA if slots remain
         show_trend_long_no_ema = self.trend_long_raw and not near_ema_long and trend_long_slots_left > 0
         if show_trend_long_no_ema:
             self.show_trend_long = True
             self.trend_long_count += 1
             trend_long_slots_left -= 1
-
         show_trend_long_ema = self.trend_long_raw and near_ema_long and trend_long_slots_left > 0
         if show_trend_long_ema:
             self.show_trend_long = True
             self.trend_long_count += 1
 
-        # Short Trend: No EMA first, then EMA if slots remain
         show_trend_short_no_ema = self.trend_short_raw and not near_ema_short and trend_short_slots_left > 0
         if show_trend_short_no_ema:
             self.show_trend_short = True
             self.trend_short_count += 1
             trend_short_slots_left -= 1
-
         show_trend_short_ema = self.trend_short_raw and near_ema_short and trend_short_slots_left > 0
         if show_trend_short_ema:
             self.show_trend_short = True
             self.trend_short_count += 1
 
-        # ─── CHoCH Signals ──────────────────────────────────────────────────
+        # CHoCH
         if self.choch_only_long_raw and self.choch_long_count < 2:
             self.show_choch_long = True
             self.choch_long_count += 1
@@ -866,7 +911,7 @@ class TradingViewEngine:
             self.show_choch_short = True
             self.choch_short_count += 1
 
-        # ─── Consolidation Signals ──────────────────────────────────────────
+        # Consolidation
         if self.cons_long_raw and self.cons_long_count < 2:
             self.show_cons_long = True
             self.cons_long_count += 1
@@ -874,34 +919,18 @@ class TradingViewEngine:
             self.show_cons_short = True
             self.cons_short_count += 1
 
-        # ─── Final Any Signals ──────────────────────────────────────────────
-        self.show_any_long = (
-            self.show_rev_long or
-            self.show_follow_up_long or
-            self.show_trend_long or
-            self.show_choch_long or
-            self.show_cons_long
-        )
-
-        self.show_any_short = (
-            self.show_rev_short or
-            self.show_follow_up_short or
-            self.show_trend_short or
-            self.show_choch_short or
-            self.show_cons_short
-        )
+        # Any
+        self.show_any_long = any([self.show_rev_long, self.show_follow_up_long, self.show_trend_long, self.show_choch_long, self.show_cons_long])
+        self.show_any_short = any([self.show_rev_short, self.show_follow_up_short, self.show_trend_short, self.show_choch_short, self.show_cons_short])
 
     # ─── BUILD SIGNAL ─────────────────────────────────────────────────────────
 
     def _build_signal(self):
-        """Construct the final signal dictionary matching Pine's alert format."""
         if not (self.show_any_long or self.show_any_short):
             return None
 
-        # Direction
         direction = "Long" if self.show_any_long else "Short"
 
-        # Signal type
         if self.show_rev_long or self.show_rev_short:
             signal_type = "Type 1 — Reversal"
         elif self.show_follow_up_long or self.show_follow_up_short:
@@ -913,7 +942,7 @@ class TradingViewEngine:
         else:
             signal_type = "Type 5 — Consolidation"
 
-        # Entry and risk
+        # Entry & SL
         close = self.closes[-1]
         entry = close
         sl = None
@@ -925,7 +954,16 @@ class TradingViewEngine:
         risk = abs(close - sl)
         tp = close + risk * 1.5 if self.show_any_long else close - risk * 1.5
 
-        # Condition flags (matches Pine's _lr, _ema, _cons, _div, _conv, _choch)
+        # ─── DXY Bias (from external engine) ──────────────────────────────
+        if self.dxy_engine:
+            dxy_bias = self.dxy_engine.dxy_bias
+        else:
+            dxy_bias = "N/A"
+
+        # ─── S/R Zone ──────────────────────────────────────────────────────
+        sr_zone = self._get_sr_zone(entry)
+
+        # ─── Condition Flags ──────────────────────────────────────────────
         lr_flag = "✅ Bullish" if self.lr_is_bull and self.lr_valid else "✅ Bearish" if self.lr_is_bear and self.lr_valid else "❌ Invalid"
         ema_flag = "✅" if self.atr_val and abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5 else "➖"
         cons_flag = "📦" if self.in_consolidation else "➖"
@@ -936,8 +974,8 @@ class TradingViewEngine:
         return {
             "signal": signal_type,
             "dir": direction,
-            "pair": "GBPUSD",  # Will be set by caller
-            "tf": "H1",        # Will be set by caller
+            "pair": self.instrument,
+            "tf": "H1",
             "entry": round(entry, 5),
             "sl": round(sl, 5),
             "tp": round(tp, 5),
@@ -947,6 +985,43 @@ class TradingViewEngine:
             "div": div_flag,
             "conv": conv_flag,
             "choch": choch_flag,
-            "ote": self.ote_zone or "N/A",
+            "ote": self.ote_zone,
+            "dxy_bias": dxy_bias,
+            "sr_zone": sr_zone,
             "time": str(int(self.times[-1].timestamp() * 1000))
         }
+
+    def _get_sr_zone(self, price):
+        """Determine if price is near Support or Resistance within ATR*2."""
+        if self.atr_val is None or not self.sr_channels:
+            return "No zone"
+
+        atr_tol = self.atr_val * 2
+        nearest = None
+        nearest_dist = float('inf')
+
+        for top, bottom, strength in self.sr_channels:
+            # Check support (price above bottom)
+            if bottom <= price <= bottom + atr_tol:
+                dist = abs(price - bottom)
+                if dist < nearest_dist:
+                    nearest_dist = dist
+                    nearest = "Support zone"
+            # Check resistance (price below top)
+            if top - atr_tol <= price <= top:
+                dist = abs(price - top)
+                if dist < nearest_dist:
+                    nearest_dist = dist
+                    nearest = "Resistance zone"
+            # If price is between top and bottom (inside channel), check both
+            if bottom < price < top:
+                dist_bottom = abs(price - bottom)
+                dist_top = abs(price - top)
+                if dist_bottom < atr_tol and dist_bottom < nearest_dist:
+                    nearest_dist = dist_bottom
+                    nearest = "Support zone"
+                if dist_top < atr_tol and dist_top < nearest_dist:
+                    nearest_dist = dist_top
+                    nearest = "Resistance zone"
+
+        return nearest if nearest else "No zone"
