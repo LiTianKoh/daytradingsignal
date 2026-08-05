@@ -23,6 +23,7 @@ PARAMS = {
 OANDA_API_KEY = "6e08cf1005e4acba3bbbbab1c8b6da07-c330b49378d0e7bd6c636604ef622cf9"
 OANDA_ACCOUNT_ID = "101-003-39782402-001"
 GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzMGfJzI9pMQI7PEOw8R7W7exZscqJkXzd0DqWHS1TH8My5HJipRl8kJSb1E-RGn2CtGQ/exec"
+OANDA_API_URL = "https://api-fxpractice.oanda.com"   # Demo endpoint
 
 # ─── MULTI-INSTRUMENT CONFIG ──────────────────────────────────────────────────
 INSTRUMENTS = [
