@@ -927,7 +927,7 @@ class TradingViewEngine:
 
         # Condition flags (matches Pine's _lr, _ema, _cons, _div, _conv, _choch)
         lr_flag = "✅ Bullish" if self.lr_is_bull and self.lr_valid else "✅ Bearish" if self.lr_is_bear and self.lr_valid else "❌ Invalid"
-        ema_flag = "✅" if (abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5) if self.atr_val else False else "➖"
+        ema_flag = "✅" if self.atr_val and abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5 else "➖"
         cons_flag = "📦" if self.in_consolidation else "➖"
         div_flag = "✅" if self.div_follow_up_confirmed else "⏳" if self.div_follow_up else "➖"
         conv_flag = "✅" if self.conv_follow_up_confirmed else "⏳" if self.conv_follow_up else "➖"
