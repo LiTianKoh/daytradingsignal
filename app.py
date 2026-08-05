@@ -1,4 +1,4 @@
-# app.py - Full Version with Risk/Exit Flow
+# app.py - Full Trading Bot with Telegram, Google Sheets Logging, and Signals
 
 import threading
 import time
@@ -9,7 +9,7 @@ import base64
 from flask import Flask, jsonify, request
 from engine import TradingViewEngine
 from oanda_client import fetch_candles
-from config import INSTRUMENTS
+from config import INSTRUMENTS, OANDA_API_URL, OANDA_API_KEY, OANDA_ACCOUNT_ID
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ─── GLOBALS ──────────────────────────────────────────────────────────────────
-engines = {}
-pending_trades = {}
-user_states = {}  # {chat_id: {"state": "awaiting_risk"|"awaiting_exit"|None, "signal_id": ...}}
+engines = {}                # {instrument_name: engine_instance}
+pending_trades = {}         # {signal_id: trade_data}
+user_states = {}            # {chat_id: {"state": "awaiting_risk"|"awaiting_exit"|None, "signal_id": ...}}
 bot_running = False
 BOT_TOKEN = "8148974966:AAFqW1LmHySlvH_5v79itFA2NrFowEqnQpY"
 CHAT_ID = "5572387258"
@@ -83,11 +83,13 @@ def answer_callback(callback_id, text):
 # ─── SIGNAL MESSAGE FORMATTER ─────────────────────────────────────────────
 
 def format_signal_message(data, status=None, risk=None, exit_price=None, r_multiple=None):
+    """Format the signal message including OTE and enhanced signal type."""
     dirEmoji = "📈" if data.get("dir") == "Long" else "📉"
     base = (
         f"🚨 <b>SIGNAL ALERT</b>\n\n"
         f"{dirEmoji} <b>{data.get('pair', '—')} — {data.get('signal', '—')} {data.get('dir', '').upper()}</b>\n"
-        f"🕐 {data.get('tf', 'H1')} chart\n\n"
+        f"🕐 {data.get('tf', 'H1')} chart\n"
+        f"📊 OTE: {data.get('ote', 'N/A')}\n\n"
         f"<code>Entry:  {data.get('entry', '—')}\n"
         f"Stop:   {data.get('sl', '—')}</code>\n\n"
         f"─────── <b>CONDITIONS</b> ───────\n"
@@ -109,6 +111,7 @@ def format_signal_message(data, status=None, risk=None, exit_price=None, r_multi
 # ─── SEND SIGNAL ───────────────────────────────────────────────────────────
 
 def send_telegram_signal(signal_data):
+    """Send a new signal with Yes/No buttons."""
     signal_id = f"{signal_data['pair']}_{int(time.time()*1000)}"
     pending_trades[signal_id] = {
         "signal": signal_data,
@@ -268,11 +271,7 @@ def handle_text_message(message):
         trade['status'] = 'exited'
         user_states.pop(chat_id, None)
 
-        logger.info(f"📤 Attempting to log trade: {trade['pair']} {trade['dir']} R={r_multiple:.2f}")
-
         log_trade_to_sheet(trade)
-
-        logger.info(f"✅ Trade logging completed for {trade['pair']}")
 
         edit_message(
             chat_id=CHAT_ID,
@@ -284,6 +283,7 @@ def handle_text_message(message):
 # ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
 
 def log_trade_to_sheet(trade):
+    """Append the final trade data to the Trade Log sheet, including OTE."""
     client = get_gspread_client()
     if not client:
         logger.error("Cannot log: no Google Sheets client")
@@ -296,35 +296,35 @@ def log_trade_to_sheet(trade):
 
     signal = trade['signal']
     row = [
-        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",
-        time.strftime('%Y-%m-%d'),
-        time.strftime('%H:%M'),
-        signal.get('pair', ''),
-        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",
-        signal.get('signal', ''),
-        "",
-        "",
-        signal.get('lr', ''),
-        signal.get('ema', ''),
-        "",
-        "",
-        signal.get('cons', ''),
-        signal.get('entry', ''),
-        signal.get('sl', ''),
-        "",
-        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌",
-        trade.get('exit_price', ''),
-        "",
-        "",
-        "",
-        trade.get('risk', ''),
-        trade.get('r_multiple', ''),
-        "",
-        ""
+        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A: Timestamp
+        time.strftime('%Y-%m-%d'),                         # B: Date
+        time.strftime('%H:%M'),                            # C: Time
+        signal.get('pair', ''),                            # D: Pair
+        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E: Direction
+        signal.get('signal', ''),                          # F: Signal Type
+        "",                                                # G: DXY Bias
+        "",                                                # H: DXY Aligned
+        signal.get('lr', ''),                              # I: LR Channel
+        signal.get('ema', ''),                             # J: EMA
+        signal.get('ote', ''),                             # K: OTE Zone (now filled)
+        "",                                                # L: S/R Zone
+        signal.get('cons', ''),                            # M: Cons
+        signal.get('entry', ''),                           # N: Entry
+        signal.get('sl', ''),                              # O: SL
+        "",                                                # P: TP
+        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌", # Q: Outcome
+        trade.get('exit_price', ''),                       # R: Exit
+        "",                                                # S: Notes
+        "",                                                # T: RR (auto-computed)
+        "",                                                # U: Win (auto-computed)
+        trade.get('risk', ''),                             # V: Risk Amount ($)
+        trade.get('r_multiple', ''),                       # W: Actual R Multiple
+        "",                                                # X: Holding Time (min)
+        ""                                                 # Y: ATR at Entry (could be added)
     ]
     try:
         sheet.append_row(row)
-        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f}")
+        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')}")
     except Exception as e:
         logger.error(f"Failed to append row: {e}")
 
@@ -428,6 +428,9 @@ def run_bot_for_instrument(instrument_config):
                             row['open'], row['high'], row['low'], row['close'], row['time']
                         )
                         if signal:
+                            # Add pair and tf to signal
+                            signal['pair'] = instrument
+                            signal['tf'] = granularity
                             logger.info(f"📈 {instrument}: SIGNAL - {signal['signal']} {signal['dir']} @ {signal['entry']}")
                             send_telegram_signal(signal)
                         last_time = row['time']
@@ -494,6 +497,7 @@ def test_signal(instrument):
         "div": "➖",
         "conv": "⏳",
         "choch": "➖",
+        "ote": "OTE 1 — 61.8–78.6%",
         "time": str(int(time.time() * 1000))
     }
     try:
@@ -572,31 +576,6 @@ def telegram_webhook():
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return "OK", 200
-    
-@app.route('/test_log')
-def test_log():
-    """Test Google Sheets logging directly."""
-    try:
-        import gspread
-        from oauth2client.service_account import ServiceAccountCredentials
-        import os, json, base64
-        
-        creds_base64 = os.environ.get('GOOGLE_CREDENTIALS')
-        if not creds_base64:
-            return jsonify({"error": "GOOGLE_CREDENTIALS not set"}), 500
-        
-        creds_json = base64.b64decode(creds_base64).decode('utf-8')
-        creds_dict = json.loads(creds_json)
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        
-        sheet = client.open_by_key("1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0").worksheet("Trade Log")
-        sheet.append_row(["TEST", "from", "endpoint", "at", time.strftime('%Y-%m-%d %H:%M:%S')])
-        
-        return jsonify({"status": "test row appended"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────
 
