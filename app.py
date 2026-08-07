@@ -126,18 +126,17 @@ def send_telegram_signal(signal_data):
         "timestamp": time.time()
     }
     message = format_signal_message(signal_data)
+    
+    # ✅ Send Yes/No keyboard FIRST
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "✅ TP", "callback_data": f"tp_{signal_id}"},
-                {"text": "❌ SL", "callback_data": f"sl_{signal_id}"}
-            ],
-            [
-                {"text": "✏️ Manual Exit", "callback_data": f"exit_{signal_id}"},
-                {"text": "❌ Cancel", "callback_data": f"cancel_{signal_id}"}
+                {"text": "✅ Yes, taken", "callback_data": f"taken_{signal_id}"},
+                {"text": "❌ No, skipped", "callback_data": f"skipped_{signal_id}"}
             ]
         ]
     }
+    
     resp = send_message(CHAT_ID, message, keyboard)
     if resp and resp.get('ok'):
         pending_trades[signal_id]['message_id'] = resp['result']['message_id']
@@ -295,10 +294,15 @@ def handle_text_message(message):
         trade['status'] = 'holding'
         user_states.pop(chat_id, None)
 
+        # Inside handle_text_message, after risk is entered:
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "🚪 Exit", "callback_data": f"exit_{signal_id}"},
+                    {"text": "✅ TP", "callback_data": f"tp_{signal_id}"},
+                    {"text": "❌ SL", "callback_data": f"sl_{signal_id}"}
+                ],
+                [
+                    {"text": "✏️ Manual Exit", "callback_data": f"exit_{signal_id}"},
                     {"text": "❌ Cancel", "callback_data": f"cancel_{signal_id}"}
                 ]
             ]
