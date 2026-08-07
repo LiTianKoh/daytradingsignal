@@ -343,6 +343,14 @@ def handle_text_message(message):
         )
         send_message(chat_id, f"✅ Trade closed. P&L: ${pnl:.2f} (R: {r_multiple:.2f})")
 
+@app.route('/reset')
+def reset_bot():
+    """Clear all pending trades and user states."""
+    global pending_trades, user_states
+    pending_trades.clear()
+    user_states.clear()
+    return jsonify({"status": "reset", "pending_trades": len(pending_trades)})
+
 # ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
 
 def log_trade_to_sheet(trade):
