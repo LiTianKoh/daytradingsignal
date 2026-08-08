@@ -14,10 +14,9 @@ import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-logger.info("🚀 app.py loaded")
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+logger.info("🚀 app.py loaded")
 
 app = Flask(__name__)
 
