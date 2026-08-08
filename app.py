@@ -27,6 +27,7 @@ bot_running = False
 BOT_TOKEN = "8148974966:AAFqW1LmHySlvH_5v79itFA2NrFowEqnQpY"
 CHAT_ID = "5572387258"
 SHEET_ID = "1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0"
+dxy_bias = "N/A"          # ← ADD THIS
 
 # ─── GOOGLE SHEETS AUTH ─────────────────────────────────────────────────────
 
@@ -45,6 +46,46 @@ def get_gspread_client():
     except Exception as e:
         logger.error(f"❌ Google Sheets auth error: {e}")
         return None
+
+# ─── DXY ENGINE ─────────────────────────────────────────────────────────────
+
+def run_dxy_engine():
+    global dxy_bias
+    from oanda_client import fetch_dxy_candles
+    from engine import TradingViewEngine
+    import time
+
+    try:
+        df = fetch_dxy_candles(count=500)
+        dxy_engine = TradingViewEngine(instrument="USD_INDEX")
+        dxy_engine.ingest_batch(df)
+        logger.info("✅ DXY engine initialized")
+    except Exception as e:
+        logger.error(f"❌ DXY engine init failed: {e}")
+        return
+
+    while True:
+        try:
+            new_df = fetch_dxy_candles(count=2)
+            if len(new_df) > 0:
+                last_time = dxy_engine.times[-1] if dxy_engine.times else None
+                for _, row in new_df.iterrows():
+                    if last_time is None or row['time'] > last_time:
+                        dxy_engine.step(row['open'], row['high'], row['low'], row['close'], row['time'])
+                        if dxy_engine.lr_valid and dxy_engine.lr_slope is not None:
+                            if dxy_engine.lr_slope > 0:
+                                dxy_bias = "Bullish DXY"
+                            elif dxy_engine.lr_slope < 0:
+                                dxy_bias = "Bearish DXY"
+                            else:
+                                dxy_bias = "Neutral / Unclear"
+                        else:
+                            dxy_bias = "Neutral / Unclear"
+                        last_time = row['time']
+            time.sleep(60)
+        except Exception as e:
+            logger.error(f"❌ DXY loop error: {e}")
+            time.sleep(60)
 
 # ─── TELEGRAM HELPERS ──────────────────────────────────────────────────────
 
@@ -90,6 +131,8 @@ def format_signal_message(data, status=None, risk=None, exit_price=None, r_multi
         f"{dirEmoji} <b>{data.get('pair', '—')} — {data.get('signal', '—')} {data.get('dir', '').upper()}</b>\n"
         f"🕐 {data.get('tf', 'H1')} chart\n"
         f"📊 OTE: {data.get('ote', 'N/A')}\n\n"
+        f"💵 DXY: {data.get('dxy_bias', 'N/A')}\n"          # ← ADD THIS
+        f"🏛️ S/R: {data.get('sr_zone', 'No zone')}\n\n"    # ← ADD THIS
         f"<code>Entry:  {data.get('entry', '—')}\n"
         f"Stop:   {data.get('sl', '—')}</code>\n\n"
         f"─────── <b>CONDITIONS</b> ───────\n"
@@ -472,7 +515,7 @@ def scoring_loop():
 # ─── BOT ENGINE ──────────────────────────────────────────────────────────
 
 def run_bot_for_instrument(instrument_config):
-    global bot_running
+    global bot_running, dxy_bias
     instrument = instrument_config["name"]
     granularity = instrument_config.get("granularity", "H1")
     logger.info(f"🚀 Starting engine for {instrument}")
@@ -480,6 +523,7 @@ def run_bot_for_instrument(instrument_config):
     try:
         df = fetch_candles(instrument, granularity, count=500)
         engine = TradingViewEngine()
+        engine.dxy_bias = dxy_bias  # global from DXY loop
         engine.ingest_batch(df)
         logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
         engines[instrument] = engine
@@ -498,6 +542,7 @@ def run_bot_for_instrument(instrument_config):
                 last_time = engine.times[-1] if engine.times else None
                 for _, row in new_df.iterrows():
                     if last_time is None or row['time'] > last_time:
+                        engine.dxy_bias = dxy_bias  # Update DXY bias for each new bar
                         signal = engine.step(
                             row['open'], row['high'], row['low'], row['close'], row['time']
                         )
@@ -658,6 +703,11 @@ def telegram_webhook():
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
+    # Start DXY engine first
+    dxy_thread = threading.Thread(target=run_dxy_engine, daemon=True)
+    dxy_thread.start()
+    time.sleep(5)  # give DXY engine time to initialize
+
     start_all_engines()
     threading.Thread(target=scoring_loop, daemon=True).start()
     app.run(host='0.0.0.0', port=8080)

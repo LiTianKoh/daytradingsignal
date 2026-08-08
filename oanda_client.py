@@ -24,4 +24,4 @@ def fetch_candles(instrument, granularity="H1", count=1000):
 
 def fetch_dxy_candles(granularity="H1", count=500):
     """Fetch DXY (USD_INDEX) candles."""
-    return fetch_candles(OANDA_DXY_INSTRUMENT, granularity, count)
+    return fetch_candles("USD_INDEX", granularity, count)

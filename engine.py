@@ -931,6 +931,7 @@ class TradingViewEngine:
 
         direction = "Long" if self.show_any_long else "Short"
 
+        # Determine signal type
         if self.show_rev_long or self.show_rev_short:
             signal_type = "Type 1 — Reversal"
         elif self.show_follow_up_long or self.show_follow_up_short:
@@ -942,7 +943,6 @@ class TradingViewEngine:
         else:
             signal_type = "Type 5 — Consolidation"
 
-        # Entry & SL
         close = self.closes[-1]
         entry = close
         sl = None
@@ -954,8 +954,10 @@ class TradingViewEngine:
         risk = abs(close - sl)
         tp = close + risk * 1.5 if self.show_any_long else close - risk * 1.5
 
-        # ─── DXY Bias (from external engine) ──────────────────────────────
-        dxy_bias = self.dxy_bias if self.dxy_bias else "N/A"
+        # ─── DXY Bias ──────────────────────────────────────────────────────────
+        # Use the global dxy_bias set by app.py (passed via self.dxy_bias)
+        dxy_bias = getattr(self, 'dxy_bias', 'N/A')
+        # Compute DXY alignment
         if dxy_bias == "Bullish DXY" and direction == "Long":
             dxy_aligned = "Yes — confirmed direction"
         elif dxy_bias == "Bearish DXY" and direction == "Short":
@@ -965,10 +967,10 @@ class TradingViewEngine:
         else:
             dxy_aligned = "N/A"
 
-        # ─── S/R Zone ──────────────────────────────────────────────────────
+        # ─── S/R Zone ──────────────────────────────────────────────────────────
         sr_zone = self._get_sr_zone(entry)
 
-        # ─── Condition Flags ──────────────────────────────────────────────
+        # ─── Condition Flags ──────────────────────────────────────────────────
         lr_flag = "✅ Bullish" if self.lr_is_bull and self.lr_valid else "✅ Bearish" if self.lr_is_bear and self.lr_valid else "❌ Invalid"
         ema_flag = "✅" if self.atr_val and abs(self.lows[-1] - self.ema200) <= self.atr_val * 0.5 else "➖"
         cons_flag = "📦" if self.in_consolidation else "➖"
@@ -992,6 +994,7 @@ class TradingViewEngine:
             "choch": choch_flag,
             "ote": self.ote_zone,
             "dxy_bias": dxy_bias,
+            "dxy_aligned": dxy_aligned,
             "sr_zone": sr_zone,
             "time": str(int(self.times[-1].timestamp() * 1000))
         }
