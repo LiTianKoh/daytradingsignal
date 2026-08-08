@@ -14,6 +14,8 @@ import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+logger.info("🚀 app.py loaded")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -630,6 +632,10 @@ def status():
     is_running = len(engines) > 0
     return jsonify({"status": "running" if is_running else "stopped", "instruments": instrument_status})
 
+@app.route('/ping')
+def ping():
+    return jsonify({"message": "pong"})
+
 @app.route('/test_signal/<instrument>')
 def test_signal(instrument):
     logger.info(f"🔍 Test signal requested for {instrument}")
@@ -735,9 +741,9 @@ def telegram_webhook():
 
 if __name__ == '__main__':
     # Start DXY engine first
-    dxy_thread = threading.Thread(target=run_dxy_engine, daemon=True)
-    dxy_thread.start()
-    time.sleep(5)  # give DXY engine time to initialize
+    #dxy_thread = threading.Thread(target=run_dxy_engine, daemon=True)
+    #dxy_thread.start()
+    #time.sleep(5)  # give DXY engine time to initialize
 
     start_all_engines()
     threading.Thread(target=scoring_loop, daemon=True).start()
