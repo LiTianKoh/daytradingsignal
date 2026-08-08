@@ -512,6 +512,34 @@ def scoring_loop():
             logger.error(f"Scoring loop error: {e}")
         time.sleep(3600)
 
+@app.route('/debug/<instrument>')
+def debug_engine(instrument):
+    engine = engines.get(instrument)
+    if not engine:
+        return jsonify({"error": f"Instrument {instrument} not found or not initialized"}), 404
+
+    # Safely get attributes
+    def safe_get(obj, attr, default=None):
+        return getattr(obj, attr, default)
+
+    return jsonify({
+        "instrument": instrument,
+        "lr_valid": safe_get(engine, 'lr_valid'),
+        "lr_slope": safe_get(engine, 'lr_slope'),
+        "lr_upper": safe_get(engine, 'lr_upper'),
+        "lr_lower": safe_get(engine, 'lr_lower'),
+        "in_consolidation": safe_get(engine, 'in_consolidation'),
+        "ema200": safe_get(engine, 'ema200'),
+        "atr": safe_get(engine, 'atr_val'),
+        "show_any_long": safe_get(engine, 'show_any_long'),
+        "show_any_short": safe_get(engine, 'show_any_short'),
+        "new_choch_bull": safe_get(engine, 'new_choch_bull'),
+        "new_choch_bear": safe_get(engine, 'new_choch_bear'),
+        "div_follow_up_confirmed": safe_get(engine, 'div_follow_up_confirmed'),
+        "conv_follow_up_confirmed": safe_get(engine, 'conv_follow_up_confirmed'),
+        "dxy_bias": safe_get(engine, 'dxy_bias'),
+    })
+
 # ─── BOT ENGINE ──────────────────────────────────────────────────────────
 
 def run_bot_for_instrument(instrument_config):
