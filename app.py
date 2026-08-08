@@ -543,6 +543,7 @@ def debug_engine(instrument):
 # ─── BOT ENGINE ──────────────────────────────────────────────────────────
 
 def run_bot_for_instrument(instrument_config):
+    logger.info(f"🔍 run_bot_for_instrument called for {instrument_config['name']}")
     global bot_running, dxy_bias
     instrument = instrument_config["name"]
     granularity = instrument_config.get("granularity", "H1")
@@ -588,7 +589,9 @@ def run_bot_for_instrument(instrument_config):
 
 def start_all_engines():
     global bot_running
+    logger.info(f"🔍 start_all_engines called with {len(INSTRUMENTS)} instruments")
     for instrument_config in INSTRUMENTS:
+        logger.info(f"🔍 Starting thread for {instrument_config['name']}")
         thread = threading.Thread(
             target=run_bot_for_instrument,
             args=(instrument_config,),
