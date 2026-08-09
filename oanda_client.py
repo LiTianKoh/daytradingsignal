@@ -22,28 +22,27 @@ def fetch_candles(instrument, granularity="H1", count=1000):
         })
     return pd.DataFrame(candles)
 
-def fetch_dxy_candles(granularity="H1", count=500):
-    """
-    Fetch DXY from Yahoo Finance (replaces OANDA USD_INDEX).
-    """
+def fetch_dxy_candles(granularity="H1", count=500, retries=3):
     import yfinance as yf
-    import pandas as pd
+    import time
     
-    interval_map = {
-        "H1": "60m",
-        "H4": "1h",   # Yahoo doesn't have 4h
-        "D": "1d"
-    }
+    interval_map = {"H1": "60m", "H4": "1h", "D": "1d"}
     interval = interval_map.get(granularity, "60m")
     
-    ticker = yf.Ticker("DX-Y.NYB")
-    df = ticker.history(period=f"{max(count // 24 + 7, 7)}d", interval=interval)
-    
-    if df.empty:
-        raise ValueError("No DXY data from Yahoo Finance")
-    
-    df = df.reset_index()
-    df['time'] = pd.to_datetime(df['Datetime'])
-    df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
-    
-    return df[['time', 'open', 'high', 'low', 'close']].tail(count)
+    for attempt in range(retries):
+        try:
+            ticker = yf.Ticker("DX-Y.NYB")
+            df = ticker.history(period=f"{max(count // 24 + 7, 7)}d", interval=interval)
+            if df.empty:
+                raise ValueError("No DXY data")
+            df = df.reset_index()
+            df['time'] = pd.to_datetime(df['Datetime'])
+            df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
+            return df[['time', 'open', 'high', 'low', 'close']].tail(count)
+        except Exception as e:
+            if "Rate limited" in str(e) and attempt < retries - 1:
+                wait = (attempt + 1) * 10  # 10, 20, 30 seconds
+                time.sleep(wait)
+                continue
+            else:
+                raise

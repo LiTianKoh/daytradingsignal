@@ -86,7 +86,7 @@ def run_dxy_engine():
             time.sleep(60)
         except Exception as e:
             logger.error(f"❌ DXY loop error: {e}")
-            time.sleep(60)
+            time.sleep(300)
 
 # ─── TELEGRAM HELPERS ──────────────────────────────────────────────────────
 
