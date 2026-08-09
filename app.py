@@ -591,16 +591,16 @@ def run_bot_for_instrument(instrument_config):
 def start_all_engines():
     global bot_running
     logger.info(f"🔍 start_all_engines called with {len(INSTRUMENTS)} instruments")
-    for instrument_config in INSTRUMENTS:
-        logger.info(f"🔍 Starting thread for {instrument_config['name']}")
-        thread = threading.Thread(
-            target=run_bot_for_instrument,
-            args=(instrument_config,),
-            daemon=True
-        )
-        thread.start()
-        logger.info(f"✅ Started thread for {instrument_config['name']}")
-        time.sleep(2)
+    # for instrument_config in INSTRUMENTS:
+    #     logger.info(f"🔍 Starting thread for {instrument_config['name']}")
+    #     thread = threading.Thread(
+    #         target=run_bot_for_instrument,
+    #         args=(instrument_config,),
+    #         daemon=True
+    #     )
+    #     thread.start()
+    #     logger.info(f"✅ Started thread for {instrument_config['name']}")
+    #     time.sleep(2)
 
 # ─── FLASK ROUTES ──────────────────────────────────────────────────────────
 
@@ -736,14 +736,17 @@ def telegram_webhook():
         logger.error(f"Webhook error: {e}")
         return "OK", 200
 
+def start_bot():
+    """Start all background threads."""
+    logger.info("🚀 Starting bot...")
+    # Start DXY engine
+    dxy_thread = threading.Thread(target=run_dxy_engine, daemon=True)
+    dxy_thread.start()
+    time.sleep(5)
+    start_all_engines()
+    threading.Thread(target=scoring_loop, daemon=True).start()
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    # Start DXY engine first
-    #dxy_thread = threading.Thread(target=run_dxy_engine, daemon=True)
-    #dxy_thread.start()
-    #time.sleep(5)  # give DXY engine time to initialize
-
-    start_all_engines()
-    threading.Thread(target=scoring_loop, daemon=True).start()
+    start_bot()
     app.run(host='0.0.0.0', port=8080)
