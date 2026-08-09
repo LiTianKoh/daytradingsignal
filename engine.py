@@ -286,8 +286,15 @@ class TradingViewEngine:
             self.daily_low = low_series.iloc[-1]
             self.daily_close = close_series.iloc[-1]
         else:
-            self.daily_high = max(self.daily_high, high_series.iloc[-1])
-            self.daily_low = min(self.daily_low, low_series.iloc[-1])
+            # Only update if self.daily_high is not None
+            if self.daily_high is not None:
+                self.daily_high = max(self.daily_high, high_series.iloc[-1])
+            else:
+                self.daily_high = high_series.iloc[-1]
+            if self.daily_low is not None:
+                self.daily_low = min(self.daily_low, low_series.iloc[-1])
+            else:
+                self.daily_low = low_series.iloc[-1]
             self.daily_close = close_series.iloc[-1]
 
         # Compute srCwidth (if we have daily data)
