@@ -23,5 +23,27 @@ def fetch_candles(instrument, granularity="H1", count=1000):
     return pd.DataFrame(candles)
 
 def fetch_dxy_candles(granularity="H1", count=500):
-    """Fetch DXY (USD_INDEX) candles."""
-    return fetch_candles("USD_INDEX", granularity, count)
+    """
+    Fetch DXY from Yahoo Finance (replaces OANDA USD_INDEX).
+    """
+    import yfinance as yf
+    import pandas as pd
+    
+    interval_map = {
+        "H1": "60m",
+        "H4": "1h",   # Yahoo doesn't have 4h
+        "D": "1d"
+    }
+    interval = interval_map.get(granularity, "60m")
+    
+    ticker = yf.Ticker("DX-Y.NYB")
+    df = ticker.history(period=f"{max(count // 24 + 7, 7)}d", interval=interval)
+    
+    if df.empty:
+        raise ValueError("No DXY data from Yahoo Finance")
+    
+    df = df.reset_index()
+    df['time'] = pd.to_datetime(df['Datetime'])
+    df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
+    
+    return df[['time', 'open', 'high', 'low', 'close']].tail(count)
