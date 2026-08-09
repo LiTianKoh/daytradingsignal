@@ -515,9 +515,7 @@ def scoring_loop():
 
 @app.route('/debug/<instrument>')
 def debug_engine(instrument):
-    engine = engines.get(instrument)
-    if not engine:
-        return jsonify({"error": f"Instrument {instrument} not found or not initialized"}), 404
+    return jsonify({"status": "debug works", "instrument": instrument})
 
     # Safely get attributes
     def safe_get(obj, attr, default=None):
@@ -591,16 +589,16 @@ def run_bot_for_instrument(instrument_config):
 def start_all_engines():
     global bot_running
     logger.info(f"🔍 start_all_engines called with {len(INSTRUMENTS)} instruments")
-    # for instrument_config in INSTRUMENTS:
-    #     logger.info(f"🔍 Starting thread for {instrument_config['name']}")
-    #     thread = threading.Thread(
-    #         target=run_bot_for_instrument,
-    #         args=(instrument_config,),
-    #         daemon=True
-    #     )
-    #     thread.start()
-    #     logger.info(f"✅ Started thread for {instrument_config['name']}")
-    #     time.sleep(2)
+    for instrument_config in INSTRUMENTS:
+        logger.info(f"🔍 Starting thread for {instrument_config['name']}")
+        thread = threading.Thread(
+            target=run_bot_for_instrument,
+            args=(instrument_config,),
+            daemon=True
+        )
+        thread.start()
+        logger.info(f"✅ Started thread for {instrument_config['name']}")
+        time.sleep(2)
 
 # ─── FLASK ROUTES ──────────────────────────────────────────────────────────
 
@@ -736,6 +734,7 @@ def telegram_webhook():
         logger.error(f"Webhook error: {e}")
         return "OK", 200
 
+# ─── START BOT AT MODULE LEVEL (for Gunicorn) ────────────────────────────
 def start_bot():
     """Start all background threads."""
     logger.info("🚀 Starting bot...")
@@ -745,8 +744,11 @@ def start_bot():
     time.sleep(5)
     start_all_engines()
     threading.Thread(target=scoring_loop, daemon=True).start()
-# ─── ENTRY POINT ──────────────────────────────────────────────────────────
+    logger.info("✅ Bot startup complete")
+
+# Start the bot when the module is imported (by Gunicorn)
+start_bot()
 
 if __name__ == '__main__':
-    start_bot()
+    # For local development
     app.run(host='0.0.0.0', port=8080)
