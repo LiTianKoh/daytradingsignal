@@ -13,6 +13,8 @@ from config import INSTRUMENTS, OANDA_API_URL, OANDA_API_KEY, OANDA_ACCOUNT_ID
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import json
+import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -188,6 +190,8 @@ def send_telegram_signal(signal_data):
     else:
         logger.error(f"Failed to send signal: {resp}")
 
+    save_pending_trades()
+
 # ─── HANDLE CALLBACKS ─────────────────────────────────────────────────────
 
 def handle_taken(callback_id, signal_id):
@@ -214,6 +218,8 @@ def handle_skipped(callback_id, signal_id):
     trade = pending_trades.get(signal_id)
     if trade:
         trade['status'] = 'exited'
+        pending_trades.pop(signal_id, None)
+        save_pending_trades()
         edit_message(
             chat_id=CHAT_ID,
             message_id=trade['message_id'],
@@ -239,6 +245,8 @@ def handle_cancel(callback_id, signal_id):
     trade = pending_trades.get(signal_id)
     if trade:
         trade['status'] = 'exited'
+        pending_trades.pop(signal_id, None)
+        save_pending_trades()
         edit_message(
             chat_id=CHAT_ID,
             message_id=trade['message_id'],
@@ -293,6 +301,8 @@ def close_trade(callback_id, signal_id, exit_price, exit_type):
     trade['exit_price'] = exit_price
     trade['r_multiple'] = r_multiple
     trade['status'] = 'exited'
+    pending_trades.pop(signal_id, None)
+    save_pending_trades()
     trade['exit_type'] = exit_type  # "TP" or "SL" or "Manual"
     user_states.pop(CHAT_ID, None)
 
@@ -397,6 +407,7 @@ def reset_bot():
     global pending_trades, user_states
     pending_trades.clear()
     user_states.clear()
+    save_pending_trades()
     return jsonify({"status": "reset", "pending_trades": len(pending_trades)})
 
 # ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
@@ -445,6 +456,37 @@ def log_trade_to_sheet(trade):
         logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')} DXY={signal.get('dxy_bias', 'N/A')} SR={signal.get('sr_zone', 'No zone')}")
     except Exception as e:
         logger.error(f"Failed to append row: {e}")
+
+# ─── PERSISTENT PENDING TRADES ─────────────────────────────────────────────
+
+PENDING_FILE = "pending_trades.json"
+pending_lock = threading.Lock()
+
+def load_pending_trades():
+    """Load pending trades from JSON file."""
+    global pending_trades
+    try:
+        with open(PENDING_FILE, "r") as f:
+            loaded = json.load(f)
+            pending_trades = loaded
+            logger.info(f"✅ Loaded {len(pending_trades)} pending trades from file")
+    except FileNotFoundError:
+        pending_trades = {}
+        logger.info("📂 No pending trades file found, starting fresh")
+    except Exception as e:
+        logger.error(f"❌ Failed to load pending trades: {e}")
+        pending_trades = {}
+
+def save_pending_trades():
+    """Save pending trades to JSON file."""
+    try:
+        with pending_lock:
+            with open(PENDING_FILE, "w") as f:
+                json.dump(pending_trades, f, indent=2)
+    except Exception as e:
+        logger.error(f"❌ Failed to save pending trades: {e}")
+
+load_pending_trades()
 
 # ─── SCORING ──────────────────────────────────────────────────────────────
 
@@ -515,7 +557,9 @@ def scoring_loop():
 
 @app.route('/debug/<instrument>')
 def debug_engine(instrument):
-    return jsonify({"status": "debug works", "instrument": instrument})
+    engine = engines.get(instrument)
+    if not engine:
+        return jsonify({"error": f"Instrument {instrument} not found or not initialized"}), 404
 
     # Safely get attributes
     def safe_get(obj, attr, default=None):
