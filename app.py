@@ -13,8 +13,6 @@ from config import INSTRUMENTS, OANDA_API_URL, OANDA_API_KEY, OANDA_ACCOUNT_ID
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
-import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -30,7 +28,7 @@ bot_running = False
 BOT_TOKEN = "8148974966:AAFqW1LmHySlvH_5v79itFA2NrFowEqnQpY"
 CHAT_ID = "5572387258"
 SHEET_ID = "1pfThksgRPNK2ZmDbS9QcG8YEMEZAqhBcJOcoljLhul0"
-dxy_bias = "N/A"          # ← ADD THIS
+dxy_bias = "N/A"
 
 # ─── GOOGLE SHEETS AUTH ─────────────────────────────────────────────────────
 
@@ -134,8 +132,8 @@ def format_signal_message(data, status=None, risk=None, exit_price=None, r_multi
         f"{dirEmoji} <b>{data.get('pair', '—')} — {data.get('signal', '—')} {data.get('dir', '').upper()}</b>\n"
         f"🕐 {data.get('tf', 'H1')} chart\n"
         f"📊 OTE: {data.get('ote', 'N/A')}\n\n"
-        f"💵 DXY: {data.get('dxy_bias', 'N/A')}\n"          # ← ADD THIS
-        f"🏛️ S/R: {data.get('sr_zone', 'No zone')}\n\n"    # ← ADD THIS
+        f"💵 DXY: {data.get('dxy_bias', 'N/A')}\n"
+        f"🏛️ S/R: {data.get('sr_zone', 'No zone')}\n\n"
         f"<code>Entry:  {data.get('entry', '—')}\n"
         f"Stop:   {data.get('sl', '—')}</code>\n\n"
         f"─────── <b>CONDITIONS</b> ───────\n"
@@ -187,19 +185,25 @@ def send_telegram_signal(signal_data):
     if resp and resp.get('ok'):
         pending_trades[signal_id]['message_id'] = resp['result']['message_id']
         pending_trades[signal_id]['chat_id'] = CHAT_ID
+        logger.info(f"📤 Signal sent with ID: {signal_id}")
     else:
         logger.error(f"Failed to send signal: {resp}")
 
     save_pending_trades()
+    logger.info(f"💾 Pending trades after save: {len(pending_trades)}")
 
 # ─── HANDLE CALLBACKS ─────────────────────────────────────────────────────
 
 def handle_taken(callback_id, signal_id):
+    logger.info(f"📥 handle_taken: signal_id={signal_id}")
+    logger.info(f"📥 Current pending keys: {list(pending_trades.keys())}")
     trade = pending_trades.get(signal_id)
     if not trade:
+        logger.warning(f"⚠️ Trade not found for signal_id: {signal_id}")
         answer_callback(callback_id, "⚠️ Signal expired.")
         return
     if trade['status'] != 'pending':
+        logger.warning(f"⚠️ Trade already processed: status={trade['status']}")
         answer_callback(callback_id, "⚠️ Already processed.")
         return
 
@@ -286,7 +290,6 @@ def close_trade(callback_id, signal_id, exit_price, exit_type):
     if not trade:
         answer_callback(callback_id, "⚠️ Signal expired.")
         return
-    # ... same logic as handle_exit but using exit_price directly
     entry = float(trade['entry'])
     sl = float(trade['sl'])
     risk = trade['risk']
@@ -303,7 +306,7 @@ def close_trade(callback_id, signal_id, exit_price, exit_type):
     trade['status'] = 'exited'
     pending_trades.pop(signal_id, None)
     save_pending_trades()
-    trade['exit_type'] = exit_type  # "TP" or "SL" or "Manual"
+    trade['exit_type'] = exit_type
     user_states.pop(CHAT_ID, None)
 
     log_trade_to_sheet(trade)
@@ -348,7 +351,6 @@ def handle_text_message(message):
         trade['status'] = 'holding'
         user_states.pop(chat_id, None)
 
-        # Inside handle_text_message, after risk is entered:
         keyboard = {
             "inline_keyboard": [
                 [
@@ -401,62 +403,6 @@ def handle_text_message(message):
         )
         send_message(chat_id, f"✅ Trade closed. P&L: ${pnl:.2f} (R: {r_multiple:.2f})")
 
-@app.route('/reset')
-def reset_bot():
-    """Clear all pending trades and user states."""
-    global pending_trades, user_states
-    pending_trades.clear()
-    user_states.clear()
-    save_pending_trades()
-    return jsonify({"status": "reset", "pending_trades": len(pending_trades)})
-
-# ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
-
-def log_trade_to_sheet(trade):
-    client = get_gspread_client()
-    if not client:
-        logger.error("Cannot log: no Google Sheets client")
-        return
-    try:
-        sheet = client.open_by_key(SHEET_ID).worksheet("Trade Log")
-    except Exception as e:
-        logger.error(f"Cannot open sheet: {e}")
-        return
-
-    signal = trade['signal']
-    row = [
-        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A
-        time.strftime('%Y-%m-%d'),                         # B
-        time.strftime('%H:%M'),                            # C
-        signal.get('pair', ''),                            # D
-        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E
-        signal.get('signal', ''),                          # F
-        signal.get('dxy_bias', ''),                        # G: DXY Bias
-        signal.get('dxy_aligned', ''),                     # H: DXY Aligned
-        signal.get('lr', ''),                              # I
-        signal.get('ema', ''),                             # J
-        signal.get('ote', ''),                             # K
-        signal.get('sr_zone', ''),                         # L: S/R Zone
-        signal.get('cons', ''),                            # M
-        signal.get('entry', ''),                           # N: Entry
-        signal.get('sl', ''),                              # O: SL
-        signal.get('tp', ''),                              # P: TP (now filled)
-        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌", # Q
-        trade.get('exit_price', ''),                       # R: Exit
-        "",                                                # S: Notes
-        "",                                                # T: RR (auto)
-        "",                                                # U: Win (auto)
-        trade.get('risk', ''),                             # V
-        trade.get('r_multiple', ''),                       # W
-        "",                                                # X
-        ""                                                 # Y
-    ]
-    try:
-        sheet.append_row(row)
-        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')} DXY={signal.get('dxy_bias', 'N/A')} SR={signal.get('sr_zone', 'No zone')}")
-    except Exception as e:
-        logger.error(f"Failed to append row: {e}")
-
 # ─── PERSISTENT PENDING TRADES ─────────────────────────────────────────────
 
 PENDING_FILE = "pending_trades.json"
@@ -473,6 +419,9 @@ def load_pending_trades():
     except FileNotFoundError:
         pending_trades = {}
         logger.info("📂 No pending trades file found, starting fresh")
+    except json.JSONDecodeError:
+        pending_trades = {}
+        logger.warning("⚠️ Pending trades file corrupted, starting fresh")
     except Exception as e:
         logger.error(f"❌ Failed to load pending trades: {e}")
         pending_trades = {}
@@ -486,6 +435,7 @@ def save_pending_trades():
     except Exception as e:
         logger.error(f"❌ Failed to save pending trades: {e}")
 
+# Load pending trades on startup (before engines start)
 load_pending_trades()
 
 # ─── SCORING ──────────────────────────────────────────────────────────────
@@ -555,95 +505,6 @@ def scoring_loop():
             logger.error(f"Scoring loop error: {e}")
         time.sleep(3600)
 
-@app.route('/debug/<instrument>')
-def debug_engine(instrument):
-    engine = engines.get(instrument)
-    if not engine:
-        return jsonify({"error": f"Instrument {instrument} not found or not initialized"}), 404
-
-    # Safely get attributes
-    def safe_get(obj, attr, default=None):
-        return getattr(obj, attr, default)
-
-    return jsonify({
-        "instrument": instrument,
-        "lr_valid": safe_get(engine, 'lr_valid'),
-        "lr_slope": safe_get(engine, 'lr_slope'),
-        "lr_upper": safe_get(engine, 'lr_upper'),
-        "lr_lower": safe_get(engine, 'lr_lower'),
-        "in_consolidation": safe_get(engine, 'in_consolidation'),
-        "ema200": safe_get(engine, 'ema200'),
-        "atr": safe_get(engine, 'atr_val'),
-        "show_any_long": safe_get(engine, 'show_any_long'),
-        "show_any_short": safe_get(engine, 'show_any_short'),
-        "new_choch_bull": safe_get(engine, 'new_choch_bull'),
-        "new_choch_bear": safe_get(engine, 'new_choch_bear'),
-        "div_follow_up_confirmed": safe_get(engine, 'div_follow_up_confirmed'),
-        "conv_follow_up_confirmed": safe_get(engine, 'conv_follow_up_confirmed'),
-        "dxy_bias": safe_get(engine, 'dxy_bias'),
-    })
-
-# ─── BOT ENGINE ──────────────────────────────────────────────────────────
-
-def run_bot_for_instrument(instrument_config):
-    logger.info(f"🔍 run_bot_for_instrument called for {instrument_config['name']}")
-    global bot_running, dxy_bias
-    instrument = instrument_config["name"]
-    granularity = instrument_config.get("granularity", "H1")
-    logger.info(f"🚀 Starting engine for {instrument}")
-
-    try:
-        df = fetch_candles(instrument, granularity, count=500)
-        engine = TradingViewEngine()
-        engine.dxy_bias = dxy_bias  # global from DXY loop
-        engine.ingest_batch(df)
-        logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
-        engines[instrument] = engine
-        bot_running = True
-    except Exception as e:
-        logger.error(f"❌ {instrument}: Initialization failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        bot_running = False
-        return
-
-    while True:
-        try:
-            new_df = fetch_candles(instrument, granularity, count=2)
-            if len(new_df) > 0 and engine:
-                last_time = engine.times[-1] if engine.times else None
-                for _, row in new_df.iterrows():
-                    if last_time is None or row['time'] > last_time:
-                        engine.dxy_bias = dxy_bias  # Update DXY bias for each new bar
-                        signal = engine.step(
-                            row['open'], row['high'], row['low'], row['close'], row['time']
-                        )
-                        if signal:
-                            # Add pair and tf to signal
-                            signal['pair'] = instrument
-                            signal['tf'] = granularity
-                            logger.info(f"📈 {instrument}: SIGNAL - {signal['signal']} {signal['dir']} @ {signal['entry']}")
-                            send_telegram_signal(signal)
-                        last_time = row['time']
-            time.sleep(60)
-        except Exception as e:
-            logger.error(f"❌ {instrument}: Loop error: {e}")
-            time.sleep(60)
-
-def start_all_engines():
-    global bot_running
-    logger.info(f"🔍 start_all_engines called with {len(INSTRUMENTS)} instruments")
-    for instrument_config in INSTRUMENTS:
-        logger.info(f"🔍 Starting thread for {instrument_config['name']}")
-        thread = threading.Thread(
-            target=run_bot_for_instrument,
-            args=(instrument_config,),
-            daemon=True
-        )
-        thread.start()
-        logger.info(f"✅ Started thread for {instrument_config['name']}")
-        time.sleep(2)
-
 # ─── FLASK ROUTES ──────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -676,6 +537,50 @@ def status():
 @app.route('/ping')
 def ping():
     return jsonify({"message": "pong"})
+
+@app.route('/pending')
+def pending():
+    """Debug endpoint to view all pending trades."""
+    return jsonify({
+        "total": len(pending_trades),
+        "trades": {k: v['signal']['pair'] + " " + v['signal']['dir'] + " status:" + v['status'] for k, v in pending_trades.items()}
+    })
+
+@app.route('/reset')
+def reset_bot():
+    """Clear all pending trades and user states."""
+    global pending_trades, user_states
+    pending_trades.clear()
+    user_states.clear()
+    save_pending_trades()
+    return jsonify({"status": "reset", "pending_trades": len(pending_trades)})
+
+@app.route('/debug/<instrument>')
+def debug_engine(instrument):
+    engine = engines.get(instrument)
+    if not engine:
+        return jsonify({"error": f"Instrument {instrument} not found or not initialized"}), 404
+
+    def safe_get(obj, attr, default=None):
+        return getattr(obj, attr, default)
+
+    return jsonify({
+        "instrument": instrument,
+        "lr_valid": safe_get(engine, 'lr_valid'),
+        "lr_slope": safe_get(engine, 'lr_slope'),
+        "lr_upper": safe_get(engine, 'lr_upper'),
+        "lr_lower": safe_get(engine, 'lr_lower'),
+        "in_consolidation": safe_get(engine, 'in_consolidation'),
+        "ema200": safe_get(engine, 'ema200'),
+        "atr": safe_get(engine, 'atr_val'),
+        "show_any_long": safe_get(engine, 'show_any_long'),
+        "show_any_short": safe_get(engine, 'show_any_short'),
+        "new_choch_bull": safe_get(engine, 'new_choch_bull'),
+        "new_choch_bear": safe_get(engine, 'new_choch_bear'),
+        "div_follow_up_confirmed": safe_get(engine, 'div_follow_up_confirmed'),
+        "conv_follow_up_confirmed": safe_get(engine, 'conv_follow_up_confirmed'),
+        "dxy_bias": safe_get(engine, 'dxy_bias'),
+    })
 
 @app.route('/test_signal/<instrument>')
 def test_signal(instrument):
@@ -737,6 +642,115 @@ def start_engine():
     thread.start()
     return jsonify({"status": "engine starting"})
 
+# ─── LOG TO GOOGLE SHEETS ─────────────────────────────────────────────────
+
+def log_trade_to_sheet(trade):
+    client = get_gspread_client()
+    if not client:
+        logger.error("Cannot log: no Google Sheets client")
+        return
+    try:
+        sheet = client.open_by_key(SHEET_ID).worksheet("Trade Log")
+    except Exception as e:
+        logger.error(f"Cannot open sheet: {e}")
+        return
+
+    signal = trade['signal']
+    row = [
+        f"🤖 Bot — {time.strftime('%Y-%m-%d %H:%M:%S')}",  # A
+        time.strftime('%Y-%m-%d'),                         # B
+        time.strftime('%H:%M'),                            # C
+        signal.get('pair', ''),                            # D
+        f"{signal.get('dir', '')} 📈" if signal.get('dir') == 'Long' else f"{signal.get('dir', '')} 📉",  # E
+        signal.get('signal', ''),                          # F
+        signal.get('dxy_bias', ''),                        # G: DXY Bias
+        signal.get('dxy_aligned', ''),                     # H: DXY Aligned
+        signal.get('lr', ''),                              # I
+        signal.get('ema', ''),                             # J
+        signal.get('ote', ''),                             # K
+        signal.get('sr_zone', ''),                         # L: S/R Zone
+        signal.get('cons', ''),                            # M
+        signal.get('entry', ''),                           # N: Entry
+        signal.get('sl', ''),                              # O: SL
+        signal.get('tp', ''),                              # P: TP
+        "Win ✅" if trade['r_multiple'] > 0 else "Loss ❌", # Q
+        trade.get('exit_price', ''),                       # R: Exit
+        "",                                                # S: Notes
+        "",                                                # T: RR (auto)
+        "",                                                # U: Win (auto)
+        trade.get('risk', ''),                             # V
+        trade.get('r_multiple', ''),                       # W
+        "",                                                # X
+        ""                                                 # Y
+    ]
+    try:
+        sheet.append_row(row)
+        logger.info(f"✅ Logged trade: {signal['pair']} {signal['dir']} R={trade.get('r_multiple', 0):.2f} OTE={signal.get('ote', 'N/A')} DXY={signal.get('dxy_bias', 'N/A')} SR={signal.get('sr_zone', 'No zone')}")
+    except Exception as e:
+        logger.error(f"Failed to append row: {e}")
+
+# ─── BOT ENGINE ──────────────────────────────────────────────────────────
+
+def run_bot_for_instrument(instrument_config):
+    logger.info(f"🔍 run_bot_for_instrument called for {instrument_config['name']}")
+    global bot_running, dxy_bias
+    instrument = instrument_config["name"]
+    granularity = instrument_config.get("granularity", "H1")
+    logger.info(f"🚀 Starting engine for {instrument}")
+
+    try:
+        df = fetch_candles(instrument, granularity, count=500)
+        engine = TradingViewEngine()
+        engine.dxy_bias = dxy_bias
+        engine.ingest_batch(df)
+        logger.info(f"✅ {instrument}: Processed {len(df)} historical bars.")
+        engines[instrument] = engine
+        bot_running = True
+    except Exception as e:
+        logger.error(f"❌ {instrument}: Initialization failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        bot_running = False
+        return
+
+    while True:
+        try:
+            new_df = fetch_candles(instrument, granularity, count=2)
+            if len(new_df) > 0 and engine:
+                last_time = engine.times[-1] if engine.times else None
+                for _, row in new_df.iterrows():
+                    if last_time is None or row['time'] > last_time:
+                        engine.dxy_bias = dxy_bias
+                        signal = engine.step(
+                            row['open'], row['high'], row['low'], row['close'], row['time']
+                        )
+                        if signal:
+                            signal['pair'] = instrument
+                            signal['tf'] = granularity
+                            logger.info(f"📈 {instrument}: SIGNAL - {signal['signal']} {signal['dir']} @ {signal['entry']}")
+                            send_telegram_signal(signal)
+                        last_time = row['time']
+            time.sleep(60)
+        except Exception as e:
+            logger.error(f"❌ {instrument}: Loop error: {e}")
+            time.sleep(60)
+
+def start_all_engines():
+    global bot_running
+    logger.info(f"🔍 start_all_engines called with {len(INSTRUMENTS)} instruments")
+    for instrument_config in INSTRUMENTS:
+        logger.info(f"🔍 Starting thread for {instrument_config['name']}")
+        thread = threading.Thread(
+            target=run_bot_for_instrument,
+            args=(instrument_config,),
+            daemon=True
+        )
+        thread.start()
+        logger.info(f"✅ Started thread for {instrument_config['name']}")
+        time.sleep(2)
+
+# ─── WEBHOOK ───────────────────────────────────────────────────────────────
+
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     try:
@@ -747,6 +761,7 @@ def telegram_webhook():
             callback = data['callback_query']
             callback_id = callback['id']
             raw = callback['data']
+            logger.info(f"📥 Callback data: {raw}")
             parts = raw.split('_', 1)
             action = parts[0]
             signal_id = parts[1] if len(parts) > 1 else None
@@ -779,6 +794,7 @@ def telegram_webhook():
         return "OK", 200
 
 # ─── START BOT AT MODULE LEVEL (for Gunicorn) ────────────────────────────
+
 def start_bot():
     """Start all background threads."""
     logger.info("🚀 Starting bot...")
